@@ -1,0 +1,1372 @@
+#VRML_SIM R2025a utf8
+
+WorldInfo { basicTimeStep 16 title "REIDBOTS: Mission K-391 — Round 01: The Virtual Expedition" }
+Viewpoint {
+  orientation -0.5773502692 0.5773502692 0.5773502692 2.0944
+  position 0 0 17.4
+  fieldOfView 0.72
+}
+Background { skyColor [ 0.08 0.025 0.012 ] }
+DirectionalLight { direction -0.3 -0.4 -1 intensity 1.15 ambientIntensity 0.75 }
+
+DEF VENUS_GROUND Solid {
+  translation 0 0 -0.10
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.42 0.16 0.075 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 12 9.6 0.20 }
+    }
+  ]
+  name "Venus terrain"
+  boundingObject Box { size 12 9.6 0.20 }
+}
+
+DEF START_BORDER Transform {
+  translation -5.05 -3.65 0.0008
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.94 0.94 0.94 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 1.02 0.76 0.002 }
+    }
+  ]
+}
+DEF START_ZONE Transform {
+  translation -5.05 -3.65 0.002
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.05 0.52 0.08 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.91 0.65 0.002 }
+    }
+  ]
+}
+DEF START_IR_CORRIDOR Transform {
+  translation -5.05 -3.65 0.0031
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.42 0.16 0.075 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.91 0.2 0.0018 }
+    }
+  ]
+}
+DEF STATION_GREEN Transform {
+  translation -4.35 -1.55 0.0012
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.42 0.86 0.42 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.72 0.72 0.002 }
+    }
+  ]
+}
+DEF STATION_RED Transform {
+  translation -1.95 1.65 0.0012
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.95 0.12 0.10 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.72 0.72 0.002 }
+    }
+  ]
+}
+DEF STATION_BLUE Transform {
+  translation 3.35 0.55 0.0012
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.42 0.52 0.98 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.72 0.72 0.002 }
+    }
+  ]
+}
+DEF STATION_YELLOW Transform {
+  translation 4.7 3.35 0.0012
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 1 0.82 0.10 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.72 0.72 0.002 }
+    }
+  ]
+}
+
+DEF TRACK_e_start_1 Transform {
+  translation -4.7 -3.65 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.7 0.04 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_start_loop_1 Transform {
+  translation -4.35 -2.95 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 1.4 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_green_entry_1 Transform {
+  translation -4.35 -1.9 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.7 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_green_station_exit_1 Transform {
+  translation -4.35 -1.25 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.6 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_green_exit_1 Transform {
+  translation -3.75 -0.95 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 1.2 0.04 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_left_mid_1 Transform {
+  translation -3.15 -0.2 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 1.5 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_left_upper_1 Transform {
+  translation -3.95 0.55 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 1.6 0.04 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_left_top_1 Transform {
+  translation -4.75 1.55 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 2 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_top_left_1 Transform {
+  translation -3.6 2.55 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 2.3 0.04 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_red_upper_1 Transform {
+  translation -2.45 2.1 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.9 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_red_upper_2 Transform {
+  translation -2.2 1.65 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.5 0.04 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_red_station_exit_1 Transform {
+  translation -1.7 1.65 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.5 0.04 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_red_center_1 Transform {
+  translation -0.675 1.65 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 1.55 0.04 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_center_top_1 Transform {
+  translation 0.1 2.5 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 1.7 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_top_loop_1 Transform {
+  translation 0.875 3.35 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 1.55 0.04 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_top_return_1 Transform {
+  translation 1.65 2.5 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 1.7 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_upper_cross_1 Transform {
+  translation 0.875 1.65 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 1.55 0.04 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_upper_right_1 Transform {
+  translation 2.5 1.65 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 1.7 0.04 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_yellow_route_1 Transform {
+  translation 3.35 2.15 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 1 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_yellow_final_1 Transform {
+  translation 4.025 2.65 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 1.35 0.04 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_yellow_final_2 Transform {
+  translation 4.7 3 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.7 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_yellow_exit_1 Transform {
+  translation 4.7 3.7 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.7 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_right_drop_1 Transform {
+  translation 3.35 1.1 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 1.1 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_blue_station_exit_1 Transform {
+  translation 3.35 0.2 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.7 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_blue_right_1 Transform {
+  translation 4.025 -0.15 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 1.35 0.04 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_right_outer_1 Transform {
+  translation 4.7 -1.25 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 2.2 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_right_lower_1 Transform {
+  translation 4.025 -2.35 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 1.35 0.04 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_blue_lower_1 Transform {
+  translation 3.35 -1.25 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 2.2 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_lower_right_1 Transform {
+  translation 2.55 -2.35 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 1.6 0.04 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_lower_loop_1 Transform {
+  translation 1.75 -1.7 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 1.3 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_lower_top_1 Transform {
+  translation 0.925 -1.05 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 1.65 0.04 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_center_low_1 Transform {
+  translation 0.1 -0.35 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 1.4 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_center_up_1 Transform {
+  translation 0.1 1 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 1.3 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_mid_cross_1 Transform {
+  translation -0.725 0.35 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 1.65 0.04 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_mid_left_up_1 Transform {
+  translation -1.55 1 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 1.3 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_mid_left_up_2 Transform {
+  translation -1.5 1.65 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.1 0.04 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_mid_left_down_1 Transform {
+  translation -1.55 -0.35 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 1.4 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_lower_left_1 Transform {
+  translation -2.35 -1.05 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 1.6 0.04 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_lower_left_2 Transform {
+  translation -3.15 -1 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.1 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_lower_left_bottom_1 Transform {
+  translation -1.55 -2.35 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 2.6 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_bottom_return_1 Transform {
+  translation -2.95 -3.65 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 2.8 0.04 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_spur_left_1 Transform {
+  translation -1.55 -1.7 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 1.3 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_spur_left_2 Transform {
+  translation -2.15 -2.35 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 1.2 0.04 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_spur_center_1 Transform {
+  translation 0.1 -2.1 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 2.1 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_spur_center_2 Transform {
+  translation 0.675 -3.15 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 1.15 0.04 0.004 }
+    }
+  ]
+}
+DEF TRACK_e_blue_spur_1 Transform {
+  translation 3.35 -0.75 0.0032
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 1.2 0.004 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_46 Transform {
+  translation -5.05 -3.65 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_47 Transform {
+  translation -4.35 -3.65 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_48 Transform {
+  translation -4.35 -2.25 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_49 Transform {
+  translation -4.35 -1.55 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_50 Transform {
+  translation -4.35 -0.95 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_51 Transform {
+  translation -3.15 -0.95 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_52 Transform {
+  translation -3.15 0.55 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_53 Transform {
+  translation -4.75 0.55 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_54 Transform {
+  translation -4.75 2.55 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_55 Transform {
+  translation -2.45 2.55 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_56 Transform {
+  translation -2.45 1.65 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_57 Transform {
+  translation -1.95 1.65 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_58 Transform {
+  translation -1.45 1.65 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_59 Transform {
+  translation 0.1 1.65 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_60 Transform {
+  translation 0.1 3.35 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_61 Transform {
+  translation 1.65 3.35 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_62 Transform {
+  translation 1.65 1.65 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_63 Transform {
+  translation 3.35 1.65 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_64 Transform {
+  translation 3.35 2.65 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_65 Transform {
+  translation 4.7 2.65 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_66 Transform {
+  translation 4.7 3.35 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_67 Transform {
+  translation 4.7 4.05 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_68 Transform {
+  translation 3.35 0.55 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_69 Transform {
+  translation 3.35 -0.15 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_70 Transform {
+  translation 4.7 -0.15 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_71 Transform {
+  translation 4.7 -2.35 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_72 Transform {
+  translation 3.35 -2.35 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_73 Transform {
+  translation 1.75 -2.35 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_74 Transform {
+  translation 1.75 -1.05 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_75 Transform {
+  translation 0.1 -1.05 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_76 Transform {
+  translation 0.1 0.35 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_77 Transform {
+  translation -1.55 0.35 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_78 Transform {
+  translation -1.55 1.65 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_79 Transform {
+  translation -1.55 -1.05 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_80 Transform {
+  translation -3.15 -1.05 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_81 Transform {
+  translation -1.55 -3.65 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_82 Transform {
+  translation -1.55 -2.35 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_83 Transform {
+  translation -2.75 -2.35 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_84 Transform {
+  translation 0.1 -3.15 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_85 Transform {
+  translation 1.25 -3.15 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+DEF TRACK_JUNCTION_86 Transform {
+  translation 3.35 -1.35 0.0034
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.012 0.012 0.014 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+      geometry Box { size 0.04 0.04 0.0044 }
+    }
+  ]
+}
+
+DEF BranchBlockRock_UpperRight Solid {
+  translation 2.48 1.65 0.3
+  children [
+    Transform {
+      rotation 0.31 0.76 0.56 0.45
+      scale 1 0.77 0.82
+      children [
+        Shape {
+          appearance PBRAppearance { baseColor 0.23 0.09 0.045 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+          geometry Sphere { radius 0.34 subdivision 2 }
+        }
+      ]
+    }
+  ]
+  name "BranchBlockRock_UpperRight"
+  model "branch-blocking"
+  boundingObject Sphere { radius 0.34 subdivision 1 }
+}
+DEF BranchBlockRock_MidLeft Solid {
+  translation -1.55 -0.36 0.29
+  children [
+    Transform {
+      rotation 0.31 0.76 0.56 0.82
+      scale 1 0.85 0.87
+      children [
+        Shape {
+          appearance PBRAppearance { baseColor 0.23 0.09 0.045 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+          geometry Sphere { radius 0.33 subdivision 2 }
+        }
+      ]
+    }
+  ]
+  name "BranchBlockRock_MidLeft"
+  model "branch-blocking"
+  boundingObject Sphere { radius 0.33 subdivision 1 }
+}
+DEF BranchBlockRock_LeftSpur Solid {
+  translation -2.28 -2.35 0.28
+  children [
+    Transform {
+      rotation 0.31 0.76 0.56 1.19
+      scale 1 0.93 0.92
+      children [
+        Shape {
+          appearance PBRAppearance { baseColor 0.23 0.09 0.045 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+          geometry Sphere { radius 0.32 subdivision 2 }
+        }
+      ]
+    }
+  ]
+  name "BranchBlockRock_LeftSpur"
+  model "branch-blocking"
+  boundingObject Sphere { radius 0.32 subdivision 1 }
+}
+DEF BranchBlockRock_CenterSpur Solid {
+  translation 0.75 -3.15 0.29
+  children [
+    Transform {
+      rotation 0.31 0.76 0.56 1.56
+      scale 1 0.77 0.97
+      children [
+        Shape {
+          appearance PBRAppearance { baseColor 0.23 0.09 0.045 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+          geometry Sphere { radius 0.33 subdivision 2 }
+        }
+      ]
+    }
+  ]
+  name "BranchBlockRock_CenterSpur"
+  model "branch-blocking"
+  boundingObject Sphere { radius 0.33 subdivision 1 }
+}
+DEF BranchBlockRock_BlueSpur Solid {
+  translation 3.35 -0.93 0.28
+  children [
+    Transform {
+      rotation 0.31 0.76 0.56 1.93
+      scale 1 0.85 0.82
+      children [
+        Shape {
+          appearance PBRAppearance { baseColor 0.23 0.09 0.045 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+          geometry Sphere { radius 0.32 subdivision 2 }
+        }
+      ]
+    }
+  ]
+  name "BranchBlockRock_BlueSpur"
+  model "branch-blocking"
+  boundingObject Sphere { radius 0.32 subdivision 1 }
+}
+DEF NearTrackRock_LeftTop Solid {
+  translation -3.55 3.05 0.2
+  children [
+    Transform {
+      rotation 0.31 0.76 0.56 2.3
+      scale 1 0.93 0.87
+      children [
+        Shape {
+          appearance PBRAppearance { baseColor 0.30 0.13 0.075 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+          geometry Sphere { radius 0.22 subdivision 2 }
+        }
+      ]
+    }
+  ]
+  name "NearTrackRock_LeftTop"
+  model "near-track"
+  boundingObject Sphere { radius 0.22 subdivision 1 }
+}
+DEF NearTrackRock_Center Solid {
+  translation 0.75 1.18 0.19
+  children [
+    Transform {
+      rotation 0.31 0.76 0.56 2.67
+      scale 1 0.77 0.92
+      children [
+        Shape {
+          appearance PBRAppearance { baseColor 0.30 0.13 0.075 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+          geometry Sphere { radius 0.21 subdivision 2 }
+        }
+      ]
+    }
+  ]
+  name "NearTrackRock_Center"
+  model "near-track"
+  boundingObject Sphere { radius 0.21 subdivision 1 }
+}
+DEF NearTrackRock_Right Solid {
+  translation 4.18 -0.7 0.18
+  children [
+    Transform {
+      rotation 0.31 0.76 0.56 3.04
+      scale 1 0.85 0.97
+      children [
+        Shape {
+          appearance PBRAppearance { baseColor 0.30 0.13 0.075 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+          geometry Sphere { radius 0.2 subdivision 2 }
+        }
+      ]
+    }
+  ]
+  name "NearTrackRock_Right"
+  model "near-track"
+  boundingObject Sphere { radius 0.2 subdivision 1 }
+}
+DEF DecorativeRock_01 Solid {
+  translation -5.25 3.65 0.16
+  children [
+    Transform {
+      rotation 0.31 0.76 0.56 3.41
+      scale 1 0.93 0.82
+      children [
+        Shape {
+          appearance PBRAppearance { baseColor 0.30 0.13 0.075 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+          geometry Sphere { radius 0.18 subdivision 2 }
+        }
+      ]
+    }
+  ]
+  name "DecorativeRock_01"
+  model "decorative"
+  boundingObject Sphere { radius 0.18 subdivision 1 }
+}
+DEF DecorativeRock_02 Solid {
+  translation -3.1 3.9 0.14
+  children [
+    Transform {
+      rotation 0.31 0.76 0.56 3.78
+      scale 1 0.77 0.87
+      children [
+        Shape {
+          appearance PBRAppearance { baseColor 0.30 0.13 0.075 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+          geometry Sphere { radius 0.16 subdivision 2 }
+        }
+      ]
+    }
+  ]
+  name "DecorativeRock_02"
+  model "decorative"
+  boundingObject Sphere { radius 0.16 subdivision 1 }
+}
+DEF DecorativeRock_03 Solid {
+  translation 2.65 3.95 0.15
+  children [
+    Transform {
+      rotation 0.31 0.76 0.56 4.15
+      scale 1 0.85 0.92
+      children [
+        Shape {
+          appearance PBRAppearance { baseColor 0.30 0.13 0.075 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+          geometry Sphere { radius 0.17 subdivision 2 }
+        }
+      ]
+    }
+  ]
+  name "DecorativeRock_03"
+  model "decorative"
+  boundingObject Sphere { radius 0.17 subdivision 1 }
+}
+DEF DecorativeRock_04 Solid {
+  translation 5.3 1.15 0.14
+  children [
+    Transform {
+      rotation 0.31 0.76 0.56 4.52
+      scale 1 0.93 0.97
+      children [
+        Shape {
+          appearance PBRAppearance { baseColor 0.30 0.13 0.075 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+          geometry Sphere { radius 0.16 subdivision 2 }
+        }
+      ]
+    }
+  ]
+  name "DecorativeRock_04"
+  model "decorative"
+  boundingObject Sphere { radius 0.16 subdivision 1 }
+}
+DEF DecorativeRock_05 Solid {
+  translation 5.3 -3.65 0.17
+  children [
+    Transform {
+      rotation 0.31 0.76 0.56 4.89
+      scale 1 0.77 0.82
+      children [
+        Shape {
+          appearance PBRAppearance { baseColor 0.30 0.13 0.075 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+          geometry Sphere { radius 0.19 subdivision 2 }
+        }
+      ]
+    }
+  ]
+  name "DecorativeRock_05"
+  model "decorative"
+  boundingObject Sphere { radius 0.19 subdivision 1 }
+}
+DEF DecorativeRock_06 Solid {
+  translation -3.15 -4.1 0.13
+  children [
+    Transform {
+      rotation 0.31 0.76 0.56 5.26
+      scale 1 0.85 0.87
+      children [
+        Shape {
+          appearance PBRAppearance { baseColor 0.30 0.13 0.075 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+          geometry Sphere { radius 0.15 subdivision 2 }
+        }
+      ]
+    }
+  ]
+  name "DecorativeRock_06"
+  model "decorative"
+  boundingObject Sphere { radius 0.15 subdivision 1 }
+}
+DEF DecorativeRock_07 Solid {
+  translation 1.05 -4.05 0.14
+  children [
+    Transform {
+      rotation 0.31 0.76 0.56 5.63
+      scale 1 0.93 0.92
+      children [
+        Shape {
+          appearance PBRAppearance { baseColor 0.30 0.13 0.075 emissiveColor 0 0 0 roughness 0.85 metalness 0 }
+          geometry Sphere { radius 0.16 subdivision 2 }
+        }
+      ]
+    }
+  ]
+  name "DecorativeRock_07"
+  model "decorative"
+  boundingObject Sphere { radius 0.16 subdivision 1 }
+}
+
+Robot {
+  translation -5.05 -3.65 0.15
+  rotation 0 0 1 0
+  children [
+    Camera {
+      translation 0.13 0.12 -0.105
+      rotation 0 1 0 1.5707963268
+      name "checkpoint_color_left"
+      fieldOfView 0.28
+      width 32
+      height 32
+      near 0.01
+    }
+    Camera {
+      translation 0.13 -0.12 -0.105
+      rotation 0 1 0 1.5707963268
+      name "checkpoint_color_right"
+      fieldOfView 0.28
+      width 32
+      height 32
+      near 0.01
+    }
+    Shape {
+      appearance PBRAppearance { baseColor 0.92 0.76 0.27 roughness 0.65 metalness 0 }
+      geometry Box { size 0.35 0.26 0.11 }
+    }
+    Camera {
+      translation 0.18 0 0.04
+      name "front_camera"
+      fieldOfView 1.0
+      width 320
+      height 240
+    }
+    Camera {
+      translation 0.23 0 0.12
+      rotation 0 1 0 1.5707963268
+      name "down_camera"
+      fieldOfView 1.55
+      width 160
+      height 120
+    }
+    Camera {
+      translation 0.12 0.085 -0.07
+      rotation 0 1 0 1.5707963268
+      name "line_left_camera"
+      fieldOfView 0.35
+      width 16
+      height 16
+    }
+    Camera {
+      translation 0.12 0 -0.07
+      rotation 0 1 0 1.5707963268
+      name "line_center_camera"
+      fieldOfView 0.35
+      width 16
+      height 16
+    }
+    Camera {
+      translation 0.12 -0.085 -0.07
+      rotation 0 1 0 1.5707963268
+      name "line_right_camera"
+      fieldOfView 0.35
+      width 16
+      height 16
+    }
+    DistanceSensor {
+      translation 0.13 0.075 -0.115
+      rotation 0 1 0 1.5707963268
+      name "ir_line_0"
+      type "infra-red"
+      numberOfRays 3
+      aperture 0.08
+      gaussianWidth 0.8
+      resolution 1
+      redColorSensitivity 1
+      lookupTable [ 0 1000 0.002, 0.10 100 0.004 ]
+    }
+    DistanceSensor {
+      translation 0.13 0.05 -0.115
+      rotation 0 1 0 1.5707963268
+      name "ir_line_1"
+      type "infra-red"
+      numberOfRays 3
+      aperture 0.08
+      gaussianWidth 0.8
+      resolution 1
+      redColorSensitivity 1
+      lookupTable [ 0 1000 0.002, 0.10 100 0.004 ]
+    }
+    DistanceSensor {
+      translation 0.13 0.025 -0.115
+      rotation 0 1 0 1.5707963268
+      name "ir_line_2"
+      type "infra-red"
+      numberOfRays 3
+      aperture 0.08
+      gaussianWidth 0.8
+      resolution 1
+      redColorSensitivity 1
+      lookupTable [ 0 1000 0.002, 0.10 100 0.004 ]
+    }
+    DistanceSensor {
+      translation 0.13 0 -0.115
+      rotation 0 1 0 1.5707963268
+      name "ir_line_3"
+      type "infra-red"
+      numberOfRays 3
+      aperture 0.08
+      gaussianWidth 0.8
+      resolution 1
+      redColorSensitivity 1
+      lookupTable [ 0 1000 0.002, 0.10 100 0.004 ]
+    }
+    DistanceSensor {
+      translation 0.13 -0.025 -0.115
+      rotation 0 1 0 1.5707963268
+      name "ir_line_4"
+      type "infra-red"
+      numberOfRays 3
+      aperture 0.08
+      gaussianWidth 0.8
+      resolution 1
+      redColorSensitivity 1
+      lookupTable [ 0 1000 0.002, 0.10 100 0.004 ]
+    }
+    DistanceSensor {
+      translation 0.13 -0.05 -0.115
+      rotation 0 1 0 1.5707963268
+      name "ir_line_5"
+      type "infra-red"
+      numberOfRays 3
+      aperture 0.08
+      gaussianWidth 0.8
+      resolution 1
+      redColorSensitivity 1
+      lookupTable [ 0 1000 0.002, 0.10 100 0.004 ]
+    }
+    DistanceSensor {
+      translation 0.13 -0.075 -0.115
+      rotation 0 1 0 1.5707963268
+      name "ir_line_6"
+      type "infra-red"
+      numberOfRays 3
+      aperture 0.08
+      gaussianWidth 0.8
+      resolution 1
+      redColorSensitivity 1
+      lookupTable [ 0 1000 0.002, 0.10 100 0.004 ]
+    }
+    LED {
+      translation -0.10 0 0.08
+      name "rgb_status_led"
+      color []
+      gradual TRUE
+      children [
+        Shape {
+          appearance PBRAppearance { baseColor 0.2 0.2 0.2 roughness 0.4 metalness 0 }
+          geometry Sphere { radius 0.025 }
+        }
+        PointLight { attenuation 0 0 1 color 0 0 0 intensity 0.4 location 0 0 0.03 on FALSE }
+      ]
+    }
+    DistanceSensor {
+      translation 0.19 0 0.025
+      name "front_obstacle_sensor"
+      type "infra-red"
+      lookupTable [ 0 1000 0, 0.5 0 0 ]
+    }
+    HingeJoint {
+      jointParameters HingeJointParameters { anchor 0 0.17 -0.05 axis 0 1 0 }
+      device [
+        RotationalMotor { name "left_wheel_motor" maxVelocity 8 maxTorque 2 }
+        PositionSensor { name "left_wheel_encoder" }
+      ]
+      endPoint Solid {
+        translation 0 0.17 -0.05
+        rotation 1 0 0 1.5708
+        children [
+          Shape {
+            appearance PBRAppearance { baseColor 0.08 0.08 0.09 roughness 1 metalness 0 }
+            geometry Cylinder { radius 0.10 height 0.04 }
+          }
+        ]
+        name "left_wheel"
+        boundingObject Cylinder { radius 0.10 height 0.04 }
+        physics Physics { density -1 mass 0.12 }
+      }
+    }
+    BallJoint {
+    jointParameters BallJointParameters { anchor -0.14 0 -0.115 }
+      endPoint Solid {
+        translation -0.14 0 -0.115
+        children [
+          Shape {
+            appearance PBRAppearance { baseColor 0.08 0.08 0.09 roughness 0.7 metalness 0 }
+            geometry Sphere { radius 0.035 }
+          }
+        ]
+        name "rear_ball_caster"
+        boundingObject Sphere { radius 0.035 }
+        physics Physics { density -1 mass 0.005 }
+      }
+    }
+    HingeJoint {
+      jointParameters HingeJointParameters { anchor 0 -0.17 -0.05 axis 0 1 0 }
+      device [
+        RotationalMotor { name "right_wheel_motor" maxVelocity 8 maxTorque 2 }
+        PositionSensor { name "right_wheel_encoder" }
+      ]
+      endPoint Solid {
+        translation 0 -0.17 -0.05
+        rotation 1 0 0 1.5708
+        children [
+          Shape {
+            appearance PBRAppearance { baseColor 0.08 0.08 0.09 roughness 1 metalness 0 }
+            geometry Cylinder { radius 0.10 height 0.04 }
+          }
+        ]
+        name "right_wheel"
+        boundingObject Cylinder { radius 0.10 height 0.04 }
+        physics Physics { density -1 mass 0.12 }
+      }
+    }
+  ]
+  name "eLLo"
+  controller "ello_starter"
+  controllerArgs [ ]
+  boundingObject Box { size 0.35 0.26 0.11 }
+  physics Physics { density -1 mass 1.0 centerOfMass [ -0.05 0 0 ] }
+}
