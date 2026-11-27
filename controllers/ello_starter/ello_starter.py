@@ -144,8 +144,12 @@ class LineFollower:
         # Junction memory. Each junction records its position, the road it was
         # first entered by ("entry"), and for each cardinal road its state:
         # UNTRIED, TAKEN, LINK (to another junction), DEAD_END or BLOCKED.
-        self.junctions = []
-        self.pending = None             # (junction, direction) of the road being driven
+        # The start point is junction 0 at the origin. Its only road (east, the way
+        # the robot drives off the start) is taken from the beginning, so every road
+        # the robot drives is tied to a junction, including the first one.
+        self.junctions = [{"x": 0.0, "y": 0.0, "roads": {0: {"state": TAKEN}}, "entry": None}]
+        self.pending = (0, 0)           # (junction, direction) of the road being driven
+        self.stop_after_backup = False  # set when the blocked road is the only road from the start
         self.backup_goal = 0.0
         self.arrival_heading = 0.0      # travel heading when the junction was reached
 
@@ -189,54 +193,9 @@ class LineFollower:
         self.road_bearings = []
         self.scan_start_heading = 0.0
 
-        # Turn bookkeeping for the decision log.
-        self.turn_planned = 0.0
-        self.turn_done = 0.0
-        self.turn_why = ""
-
         # Debug output.
         self.steps = 0
         self.last_debug = -1e9
-
-    # ---- event log ------------------------------------------------------
-    def log(self, text=""):
-        """Print one line of the decision log, stamped with the simulation time."""
-        print("[t=%6.2f] %s" % (self.steps * self.step_ms / 1000.0, text))
-
-    def pose_text(self):
-        return "position (%.2f, %.2f) m, heading %+.1f deg (facing %s), travelled %.2f m" % (
-            self.x, self.y, math.degrees(self.heading),
-            DIR_NAME[dir_of(self.heading)], self.travelled)
-
-    @staticmethod
-    def turn_text(angle):
-        """Describe a signed turn angle (radians). Positive is counter-clockwise."""
-        deg = math.degrees(angle)
-        if abs(deg) < 0.05:
-            return "0.0 deg (no turn)"
-        return "%+.1f deg (%.1f deg to the %s)" % (deg, abs(deg), "LEFT" if deg > 0 else "RIGHT")
-
-    @staticmethod
-    def side_text(relative):
-        """Where a road lies relative to the direction the robot arrived in."""
-        deg = math.degrees(angle_wrap(relative))
-        if abs(deg) <= 45:
-            return "straight ahead"
-        if abs(deg) >= 135:
-            return "behind"
-        return "left" if deg > 0 else "right"
-
-    def begin_turn(self, target, why, state=None):
-        """Set the heading to turn to and log the planned turn angle."""
-        self.target_heading = angle_wrap(target)
-        self.turn_planned = angle_wrap(self.target_heading - self.heading)
-        self.turn_done = 0.0
-        self.turn_why = why
-        self.state = self.TURN if state is None else state
-        self.log("TURN planned: %s, from heading %+.1f deg to %+.1f deg (facing %s) -- %s"
-                 % (self.turn_text(self.turn_planned), math.degrees(self.heading),
-                    math.degrees(self.target_heading),
-                    DIR_NAME[dir_of(self.target_heading)], why))
 
     # ---- motion and odometry -------------------------------------------
     def drive(self, left, right):
@@ -320,19 +279,13 @@ class LineFollower:
                 side = self.last_side or 1.0
                 self.drive(SEARCH_SPEED * side, -SEARCH_SPEED * side)
             else:
-                self.log("=" * 60)
-                self.log("DEAD END: line lost for %d steps and not found by the search sweep"
-                         % self.lost)
-                self.log("  at %s" % self.pose_text())
-                self.log("  decision: mark this road DEAD_END and turn around, because "
-                         "there is no line left to follow")
+                print("line not found after search; turning around")
                 self.close_pending(DEAD_END)
                 self.drive(0.0, 0.0)
                 # Turn back to the heading the robot had on the line, not its current
                 # heading, which the search sweep may have disturbed.
-                self.begin_turn(self.travel_heading + math.pi,
-                                "reverse of the last on-line heading %+.1f deg"
-                                % math.degrees(self.travel_heading))
+                self.target_heading = angle_wrap(self.travel_heading + math.pi)
+                self.state = self.TURN
             return
 
         self.lost = 0
@@ -395,24 +348,16 @@ class LineFollower:
         """Stop, reverse and block the road the robot is on, so every later visit
         avoids it. Used for an obstacle ahead and for the start point."""
         self.drive(0.0, 0.0)
-        self.log("=" * 60)
-        self.log(reason)
-        self.log("  at %s" % self.pose_text())
-        if self.pending is not None:
-            j, d = self.pending
-            self.log("  road being driven: road %s out of junction %d" % (DIR_NAME[d], j))
-        else:
-            self.log("  road being driven: not yet tied to a junction (nothing to mark in memory)")
-        self.log("  decision: stop, mark this road BLOCKED so it is never chosen again, "
-                 "reverse %.2f m, then turn around and go back to the last junction"
-                 % OBSTACLE_BACKUP)
+        print("%s: reversing and blocking this road" % reason)
+        if self.pending is not None and self.pending[0] == 0:
+            self.stop_after_backup = True
+            print("the only road from the start is blocked; there is no other way, stopping "
+                  "after reversing")
         self.close_pending(BLOCKED)
         self.backup_goal = self.travelled - OBSTACLE_BACKUP
         # Turn to face back along the line, toward the junction.
-        self.begin_turn(self.travel_heading + math.pi,
-                        "reverse of the last on-line heading %+.1f deg (done after backing up)"
-                        % math.degrees(self.travel_heading),
-                        state=self.BACKUP)
+        self.target_heading = angle_wrap(self.travel_heading + math.pi)
+        self.state = self.BACKUP
 
     def close_pending(self, state):
         """The road being driven has ended in a dead end or an obstacle. If it was
@@ -429,7 +374,7 @@ class LineFollower:
                 self.junctions[old["to"]]["roads"][old["back"]] = {
                     "state": state, "to": j, "back": d}
         self.junctions[j]["roads"][d] = new
-        self.log("  memory: junction %d road %s is now %s" % (j, DIR_NAME[d], state))
+        print("memory: junction %d road %s is %s" % (j, DIR_NAME[d], state))
         self.pending = None
 
     def link_arrival(self, here, back):
@@ -440,8 +385,8 @@ class LineFollower:
         self.pending = None
         self.junctions[src]["roads"][d] = {"state": LINK, "to": here, "back": back}
         self.junctions[here]["roads"][back] = {"state": LINK, "to": src, "back": d}
-        self.log("  memory: junction %d road %s links to junction %d (arriving on its road %s)"
-                 % (src, DIR_NAME[d], here, DIR_NAME[back]))
+        print("memory: junction %d road %s links to junction %d"
+              % (src, DIR_NAME[d], here))
 
     def note_roads(self, here, dirs):
         roads = self.junctions[here]["roads"]
@@ -501,56 +446,23 @@ class LineFollower:
         untried = [d for d in scanned
                    if d not in avoid and roads.get(d, {}).get("state") == UNTRIED]
         if untried:
-            pick = random.choice(untried)
-            names = ", ".join(DIR_NAME[d] for d in untried)
-            if len(untried) == 1:
-                return pick, "it is the only untried road here that is allowed"
-            return pick, "picked at random from the %d allowed untried roads here (%s)" % (
-                len(untried), names)
+            return random.choice(untried), "untried road"
 
         route = self.route_to_untried(here, avoid)
         if route is not None:
             first, target, path = route
-            return first, ("no untried road is allowed here, so it takes the shortest known "
-                           "route to junction %d, which still has an untried road "
-                           "(junctions %s)" % (target, " -> ".join(str(p) for p in path)))
+            print("route to junction %d through junctions %s"
+                  % (target, " -> ".join(str(p) for p in path)))
+            return first, "route over known links to an untried road"
 
         if ALLOW_RETRACE:
             route = self.route_to_untried(here, set())
             if route is not None:
                 first, target, path = route
-                return first, ("no other route exists and ALLOW_RETRACE is on, so it retraces "
-                               "the way it came toward junction %d (junctions %s)"
-                               % (target, " -> ".join(str(p) for p in path)))
+                print("no other route: retracing through junctions %s"
+                      % " -> ".join(str(p) for p in path))
+                return first, "retracing the way it came"
         return None
-
-    def explain_options(self, here, scanned, behind, entry):
-        """Log every road at this junction and whether it may be chosen, and why."""
-        roads = self.junctions[here]["roads"]
-        self.log("  options:")
-        for d in sorted(set(scanned) | set(roads)):
-            r = roads.get(d, {})
-            state = r.get("state", "unknown")
-            if d not in scanned:
-                verdict = "REJECTED - in memory but not seen in this scan"
-            elif d == behind:
-                verdict = "REJECTED - the road behind the robot (it just arrived on it)"
-            elif d == entry:
-                verdict = "REJECTED - the road this junction was first entered by"
-            elif state == UNTRIED:
-                verdict = "ALLOWED  - never driven"
-            elif state == TAKEN:
-                verdict = "REJECTED - already driven from here"
-            elif state == LINK:
-                verdict = ("ROUTE ONLY - known link to junction %d, used only to reach "
-                           "an untried road elsewhere" % r["to"])
-            elif state == DEAD_END:
-                verdict = "REJECTED - known dead end"
-            elif state == BLOCKED:
-                verdict = "REJECTED - blocked by an obstacle or the start point"
-            else:
-                verdict = "REJECTED - state %s" % state
-            self.log("    road %s [%-8s] %s" % (DIR_NAME[d], state, verdict))
 
     def start_scan(self):
         self.state = self.SCAN
@@ -609,15 +521,10 @@ class LineFollower:
             if self.state == self.FOLLOW:
                 if self.at_start_entrance():
                     # The start point is blocked like an obstacle: go back the way it came.
-                    self.start_obstacle_escape(
-                        "START POINT reached: %.2f m from the start, heading toward it "
-                        "(treated like an obstacle)" % math.hypot(self.x, self.y))
+                    self.start_obstacle_escape("START POINT reached: blocking this road")
                     continue
                 if self.front_value >= OBSTACLE_TRIGGER:
-                    self.start_obstacle_escape(
-                        "OBSTACLE ahead: front sensor %.0f >= trigger %.0f, about %.2f m away"
-                        % (self.front_value, OBSTACLE_TRIGGER,
-                           max(0.0, (1000.0 - self.front_value) / 2000.0)))
+                    self.start_obstacle_escape("obstacle ahead (front %.0f)" % self.front_value)
                     continue
                 # Junction candidate: an outermost sensor sees a black road.
                 if road_bits[0] or road_bits[6]:
@@ -626,17 +533,8 @@ class LineFollower:
                     self.outer_votes = 0
                 if self.outer_votes >= JUNCTION_CONFIRM_STEPS:
                     self.outer_votes = 0
-                    sides = [name for name, hit in (("left", road_bits[0]),
-                                                    ("right", road_bits[6])) if hit]
-                    self.log("=" * 60)
-                    self.log("JUNCTION BOX detected: outermost %s sensor saw black for %d "
-                             "steps in a row (sensors %s)"
-                             % (" and ".join(sides), JUNCTION_CONFIRM_STEPS,
-                                "".join("1" if b else "0" for b in road_bits)))
-                    self.log("  at %s" % self.pose_text())
-                    self.log("  decision: drive %.2f m forward onto the crossing centre, "
-                             "then spin 360 deg to count the roads" % JUNCTION_CENTER_OFFSET)
                     self.start_approach()
+                    print("junction found; moving onto the crossing centre")
                     continue
                 self.follow(bits, c)
 
@@ -644,8 +542,7 @@ class LineFollower:
                 if self.travelled - self.state_start >= JUNCTION_CENTER_OFFSET:
                     self.drive(0.0, 0.0)
                     self.start_scan()
-                    self.log("on the crossing centre at (%.2f, %.2f); scanning 360 deg"
-                             % (self.x, self.y))
+                    print("scanning 360 degrees")
                 else:
                     self.drive(APPROACH_SPEED, APPROACH_SPEED)
 
@@ -658,35 +555,19 @@ class LineFollower:
                 if self.scan_angle >= TWO_PI:
                     self.drive(0.0, 0.0)
                     roads = find_roads(self.road_bearings)
+                    print("scan: %d road sightings" % len(self.road_bearings))
                     scanned = sorted({dir_of(self.scan_start_heading + r) for r in roads})
-                    self.log("SCAN done: spun %.1f deg, %d road sightings, %d road(s) found"
-                             % (math.degrees(self.scan_angle), len(self.road_bearings),
-                                len(roads)))
-                    for r in sorted(roads):
-                        self.log("    road at %+6.1f deg from the arrival heading (%s) "
-                                 "-> compass road %s"
-                                 % (math.degrees(r), self.side_text(r),
-                                    DIR_NAME[dir_of(self.scan_start_heading + r)]))
                     if len(scanned) <= 2:
                         # A bend or a straight stretch, not a junction: follow the road
                         # closest to straight ahead without recording anything.
                         if roads:
-                            best = min(roads, key=abs)
-                            self.log("  decision: only %d road direction(s), so this is a bend "
-                                     "or a straight, not a junction; nothing is stored. "
-                                     "Following the road closest to straight ahead, at %+.1f deg"
-                                     % (len(scanned), math.degrees(best)))
-                            self.start_turn_to(best, "road closest to straight ahead")
+                            print("bend or straight; following the road closest to ahead")
+                            self.start_turn_to(min(roads, key=abs))
                         else:
-                            self.log("  decision: no road seen in the scan; keeping the "
-                                     "arrival heading")
-                            self.start_turn_to(0.0, "no road seen, keep the arrival heading")
+                            self.start_turn_to(0.0)
                         continue
 
-                    known = len(self.junctions)
                     here = self.junction_index()
-                    self.log("  this is %s junction %d"
-                             % ("NEW" if here >= known else "KNOWN", here))
 
                     # The road behind the robot is the opposite of the direction it
                     # was travelling when it reached this junction. This is taken from
@@ -709,56 +590,36 @@ class LineFollower:
                         if roads_here.get(d, {}).get("state", UNTRIED) == UNTRIED:
                             roads_here[d] = {"state": TAKEN}
                     self.note_roads(here, [d for d in scanned if d not in avoid])
-                    self.log("  " + self.describe(here))
-                    self.log("  arrived travelling %s, so the road behind is %s; "
-                             "entry road of this junction is %s"
-                             % (DIR_NAME[dir_of(self.arrival_heading)], DIR_NAME[behind],
-                                DIR_NAME[entry]))
-                    self.explain_options(here, scanned, behind, entry)
+                    print(self.describe(here))
 
                     choice = self.choose_next(here, scanned, avoid)
                     if choice is None:
-                        self.log("  DECISION: STOP. Every unexplored road is only reachable "
-                                 "by going back the way the robot came, and ALLOW_RETRACE "
-                                 "is off")
+                        print("every unexplored road here is only reachable by going back "
+                              "the way the robot came; stopping")
                         self.state = self.STOPPED
                     else:
                         d, reason = choice
-                        self.log("  DECISION: take road %s at junction %d" % (DIR_NAME[d], here))
-                        self.log("  WHY: %s" % reason)
+                        print("chose road %s at junction %d (%s)" % (DIR_NAME[d], here, reason))
                         # Only mark a road TAKEN if it was untried. A link must keep its
                         # destination, or the map loses the connection.
                         if roads_here.get(d, {}).get("state") == UNTRIED:
                             roads_here[d] = {"state": TAKEN}
                         self.pending = (here, d)
-                        self.start_turn_to(d * HALF_PI - self.scan_start_heading,
-                                           "to face road %s out of junction %d"
-                                           % (DIR_NAME[d], here))
+                        self.start_turn_to(d * HALF_PI - self.scan_start_heading)
                 else:
                     self.drive(-SCAN_SPEED, SCAN_SPEED)
 
             elif self.state == self.BACKUP:
                 if self.travelled <= self.backup_goal:
                     self.drive(0.0, 0.0)
-                    self.turn_planned = angle_wrap(self.target_heading - self.heading)
-                    self.turn_done = 0.0
-                    self.log("backed up %.2f m; now turning %s"
-                             % (OBSTACLE_BACKUP, self.turn_text(self.turn_planned)))
-                    self.state = self.TURN
+                    self.state = self.STOPPED if self.stop_after_backup else self.TURN
                 else:
                     self.drive(-APPROACH_SPEED, -APPROACH_SPEED)
 
             elif self.state == self.TURN:
-                self.turn_done += dth
                 error = angle_wrap(self.target_heading - self.heading)
                 if abs(error) <= TURN_TOLERANCE:
                     self.drive(0.0, 0.0)
-                    self.log("TURN complete: actually turned %s (planned %+.1f deg); "
-                             "now facing %s at %+.1f deg; following the line again"
-                             % (self.turn_text(self.turn_done),
-                                math.degrees(self.turn_planned),
-                                DIR_NAME[dir_of(self.target_heading)],
-                                math.degrees(self.target_heading)))
                     self.heading = self.target_heading
                     self.state = self.FOLLOW
                     self.lost = 0
@@ -772,9 +633,10 @@ class LineFollower:
             else:
                 self.drive(0.0, 0.0)
 
-    def start_turn_to(self, relative, why):
+    def start_turn_to(self, relative):
         # The scan started at the heading the robot had at the junction.
-        self.begin_turn(self.scan_start_heading + relative, why)
+        self.target_heading = angle_wrap(self.scan_start_heading + relative)
+        self.state = self.TURN
 
 
 def main():
