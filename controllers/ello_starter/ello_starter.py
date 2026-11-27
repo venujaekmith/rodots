@@ -9,80 +9,6 @@ drives down one of them:
 
 Uses only the 7 IR line sensors, the two wheel motors and the two wheel
 encoders, with the Python standard library and Webots' controller module.
-
-calibrated: black-low
-raw IR at spawn (mean of 25 steps):  292  291  291  100  291  291  291
-[t=  0.40] FOLLOW   ir= 292  290  292  100  291  291  291
-           bits=0001000 road=0000000 centroid=none colour=no heading=+0.0deg travelled=-0.000
-           lo= 227  227  227  100  227  227  227 hi= 292  290  292  290  290  290  290 black_low=True
-[t=  0.91] FOLLOW   ir= 292  292  294  100  291  290  292
-           bits=0001000 road=0000000 centroid=+0.0 colour=yes heading=+0.0deg travelled=0.248
-           lo= 237  237  237  100  237  237  237 hi= 292  292  294  281  292  292  291 black_low=True
-[t=  1.42] FOLLOW   ir= 200  199  200  100  200  199  200
-           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=-0.0deg travelled=0.504
-           lo= 199  199  200  100  199  199  199 hi= 524  525  524  271  526  525  524 black_low=True
-[t=  1.94] FOLLOW   ir= 201  200  200  100  199  200  198
-           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=+0.0deg travelled=0.760
-           lo= 105  105  105   99  199  198  198 hi= 515  516  515  262  516  516  514 black_low=True
-[t=  2.45] FOLLOW   ir= 198  200  201  100  199  197  201
-           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=-0.0deg travelled=1.015
-           lo= 115  115  115  100  199  197  199 hi= 505  506  505  252  507  506  505 black_low=True
-[t=  2.96] FOLLOW   ir= 201  201  200   99  200  200  200
-           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=+0.0deg travelled=1.271
-           lo= 125  125  125   99  199  200  199 hi= 496  496  495  242  497  496  495 black_low=True
-[t=  3.47] FOLLOW   ir= 200  200  201  100  200  200  200
-           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=+0.0deg travelled=1.527
-           lo= 134  134  134  100  199  200  199 hi= 486  487  486  233  487  487  486 black_low=True
-[t=  3.98] FOLLOW   ir= 200  199  200  100  199  200  200
-           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=-0.0deg travelled=1.783
-           lo= 144  144  144  100  198  199  199 hi= 476  477  476  223  478  477  476 black_low=True
-[t=  4.50] FOLLOW   ir= 200  200  200  100  200  200  199
-           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=+0.0deg travelled=2.039
-           lo= 154  153  154  100  198  199  199 hi= 467  468  467  214  468  468  466 black_low=True
-[t=  5.01] FOLLOW   ir= 200  199  200   99  200  199  200
-           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=-0.0deg travelled=2.295
-           lo= 163  163  163   99  199  199  199 hi= 457  458  457  204  459  458  457 black_low=True
-[t=  5.52] FOLLOW   ir= 200  200  201  100  201  199  199
-           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=+0.0deg travelled=2.551
-           lo= 173  173  173  100  200  199  199 hi= 448  448  447  194  449  448  447 black_low=True
-[t=  6.03] FOLLOW   ir= 199  200  199  100  199  199  201
-           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=+0.0deg travelled=2.807
-           lo= 182  182  182   99  199  199  199 hi= 438  439  438  185  439  439  438 black_low=True
-[t=  6.54] FOLLOW   ir= 199  201  199  100  200  201  199
-           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=-0.0deg travelled=3.062
-           lo= 192  192  192  100  200  199  199 hi= 428  429  428  175  430  429  428 black_low=True
-[t=  7.06] FOLLOW   ir= 200  199  198  100  200  200  200
-           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=+0.0deg travelled=3.318
-           lo= 200  198  198  100  198  200  200 hi= 419  419  418  166  420  419  418 black_low=True
-[t=  7.57] FOLLOW   ir= 199  200  200  199  199  201  200
-           bits=1110111 road=0000000 centroid=+0.0 colour=yes heading=-0.0deg travelled=3.574
-           lo= 105  105  106  105  199  199  199 hi= 409  410  409  199  411  410  409 black_low=True
-[t=  8.08] FOLLOW   ir= 200  200  200  201  201  199  199
-           bits=1110111 road=0000000 centroid=+0.0 colour=yes heading=+0.0deg travelled=3.830
-           lo= 115  115  116  115  199  199  199 hi= 399  400  399  201  401  400  399 black_low=True
-[t=  8.59] FOLLOW   ir= 199  200  200  201  201  201  199
-           bits=1110111 road=0000000 centroid=+0.0 colour=yes heading=-0.0deg travelled=4.086
-           lo= 125  124  125  125  199  199  199 hi= 390  391  390  201  391  391  390 black_low=True
-[t=  9.10] FOLLOW   ir= 200  200  200  200  200  200  201
-           bits=1110111 road=0000000 centroid=+0.0 colour=yes heading=-0.0deg travelled=4.342
-           lo= 134  134  135  134  199  200  200 hi= 380  381  380  199  382  381  380 black_low=True
-[t=  9.62] FOLLOW   ir= 202  201  199  199  199  200  200
-           bits=1110111 road=0000000 centroid=+0.0 colour=yes heading=+0.0deg travelled=4.598
-           lo= 144  144  145  144  199  199  198 hi= 371  371  370  200  372  371  370 black_low=True
-[t= 10.13] FOLLOW   ir= 199  201  200  200  200  200  200
-           bits=1110111 road=0000000 centroid=+0.0 colour=yes heading=-0.0deg travelled=4.853
-           lo= 153  153  154  153  200  199  199 hi= 361  362  361  200  363  362  361 black_low=True
-[t= 10.64] FOLLOW   ir= 199  199  200  200  199  200  201
-           bits=1110111 road=0000000 centroid=+0.0 colour=yes heading=+0.0deg travelled=5.109
-           lo= 163  163  164  163  199  200  199 hi= 351  352  351  200  353  352  351 black_low=True
-[t= 11.15] FOLLOW   ir= 199  200  199  201  199  200  200
-           bits=1110111 road=0000000 centroid=+0.0 colour=yes heading=-0.0deg travelled=5.365
-           lo= 173  172  173  173  199  199  199 hi= 342  343  342  201  343  343  342 black_low=True
-[t= 11.66] FOLLOW   ir= 201  200  200  200  199  200  199
-           bits=1110111 road=0000000 centroid=+0.0 colour=yes heading=-0.0deg travelled=5.621
-           lo= 182  182  183  182  199  199  199 hi= 332  333  332  200  334  333  332 black_low=True
-
-
 """
 
 import math
@@ -112,7 +38,11 @@ CALIBRATION_STEPS = 25
 LOST_LIMIT = 12
 JUNCTION_CONFIRM_STEPS = 5
 JUNCTION_CENTER_OFFSET = 0.11   # m from the first outer-sensor hit to the crossing centre
-BLACK_FRACTION = 0.25           # a road reading must be within this fraction of black
+LINE_FRACTION = 0.35            # a sensor is on the line when it reads below this fraction
+                                # of the way from black to floor (fixed, set at spawn)
+MAX_LINE_SENSORS = 4            # more black sensors than this is a dark surface, not a line
+SEARCH_SPEED = 1.2              # rad/s wheel command while searching for a lost line
+SEARCH_STEPS = 90               # steps to sweep toward the last known side before giving up
 
 
 def clamp(value, low, high):
@@ -200,12 +130,13 @@ class LineFollower:
         self.last_enc = None
 
         # Line sensing.
-        self.lo = [0.0] * 7
-        self.hi = [0.0] * 7
-        self.black_low = True
+        self.black_ref = 0.0
+        self.floor_ref = 0.0
+        self.threshold = 0.0
         self.integral = 0.0
         self.prev = 0.0
         self.last_side = 0.0
+        self.travel_heading = 0.0       # heading when the line was last centred
         self.lost = 0
         self.outer_votes = 0
 
@@ -246,42 +177,17 @@ class LineFollower:
         return [float(s.getValue()) for s in self.ir]
 
     def calibrate(self, samples):
-        n = float(len(samples))
-        mean = [sum(s[i] for s in samples) / n for i in range(7)]
-        centre = (mean[2] + mean[3] + mean[4]) / 3.0
-        outer = (mean[0] + mean[1] + mean[5] + mean[6]) / 4.0
-        self.black_low = centre <= outer
-        low, high = min(centre, outer), max(centre, outer)
-        self.lo = [low] * 7
-        self.hi = [high] * 7
-
-    def road_bits_from(self, values, bits):
-        """Stricter than the line bits: a sensor counts as road only when its
-        reading is close to the calibrated black level. Mid-grey surfaces (for
-        example a coloured pad that reads somewhat dark) fail this test."""
-        out = []
-        for i, v in enumerate(values):
-            span = self.hi[i] - self.lo[i]
-            if span < 15.0 or not bits[i]:
-                out.append(False)
-                continue
-            if self.black_low:
-                out.append(v <= self.lo[i] + BLACK_FRACTION * span)
-            else:
-                out.append(v >= self.hi[i] - BLACK_FRACTION * span)
-        return out
+        """Fix the black and floor references from the spawn samples. The line
+        sensor reads the darkest value; most sensors read the floor. The threshold
+        is set once, so it cannot drift over a long run."""
+        readings = sorted(v for s in samples for v in s)
+        self.black_ref = readings[0]
+        self.floor_ref = readings[len(readings) // 2]
+        self.threshold = self.black_ref + LINE_FRACTION * (self.floor_ref - self.black_ref)
 
     def line_bits(self, values):
-        bits = []
-        for i, v in enumerate(values):
-            self.lo[i] = v if v < self.lo[i] else self.lo[i] + 0.3
-            self.hi[i] = v if v > self.hi[i] else self.hi[i] - 0.3
-            if self.hi[i] - self.lo[i] < 15.0:
-                bits.append(False)
-                continue
-            mid = 0.5 * (self.lo[i] + self.hi[i])
-            bits.append(v <= mid if self.black_low else v >= mid)
-        return bits
+        """A sensor sees the black line when it reads at or below the threshold."""
+        return [v <= self.threshold for v in values]
 
     def coloured_below(self):
         """True when a downward camera sees a saturated colour, i.e. a checkpoint
@@ -309,7 +215,7 @@ class LineFollower:
 
     def centroid(self, bits):
         count = sum(bits)
-        if count == 0:
+        if count == 0 or count > MAX_LINE_SENSORS:
             return None
         return sum(w for w, b in zip(WEIGHTS, bits) if b) / count
 
@@ -317,18 +223,25 @@ class LineFollower:
     def follow(self, bits, c):
         if c is None:
             self.lost += 1
-            if self.lost > LOST_LIMIT:
-                # The line has ended: a dead end. Turn 180 degrees and follow the
-                # road back rather than spinning in place and losing alignment.
-                print("line ended (dead end); turning around")
-                self.drive(0.0, 0.0)
-                self.target_heading = angle_wrap(self.heading + math.pi)
-                self.state = self.TURN
-            else:
+            if self.lost <= LOST_LIMIT:
                 self.drive(CRUISE * 0.4, CRUISE * 0.4)
+            elif self.lost <= LOST_LIMIT + SEARCH_STEPS:
+                # Sweep toward the side the line was last seen on. A positive
+                # side means the line was on the right, so turn right.
+                side = self.last_side or 1.0
+                self.drive(SEARCH_SPEED * side, -SEARCH_SPEED * side)
+            else:
+                print("line not found after search; turning around")
+                self.drive(0.0, 0.0)
+                # Turn back to the heading the robot had on the line, not its current
+                # heading, which the search sweep may have disturbed.
+                self.target_heading = angle_wrap(self.travel_heading + math.pi)
+                self.state = self.TURN
             return
 
         self.lost = 0
+        if abs(c) < 0.3:
+            self.travel_heading = self.heading
         if c != 0.0:
             self.last_side = -1.0 if c < 0 else 1.0
         error_change = c - self.prev
@@ -373,9 +286,8 @@ class LineFollower:
                  "none" if c is None else "%+.1f" % c,
                  "yes" if on_colour else "no",
                  math.degrees(self.heading), self.travelled))
-        print("           lo=%s hi=%s black_low=%s"
-              % (" ".join("%4d" % v for v in self.lo),
-                 " ".join("%4d" % v for v in self.hi), self.black_low))
+        print("           threshold=%.0f (black %.0f, floor %.0f)"
+              % (self.threshold, self.black_ref, self.floor_ref))
 
     def run(self):
         self.drive(0.0, 0.0)
@@ -390,7 +302,8 @@ class LineFollower:
                 self.drive(0.0, 0.0)
                 if len(samples) == CALIBRATION_STEPS:
                     self.calibrate(samples)
-                    print("calibrated: %s" % ("black-low" if self.black_low else "black-high"))
+                    print("calibrated: threshold %.0f (black %.0f, floor %.0f)"
+                          % (self.threshold, self.black_ref, self.floor_ref))
                     print("raw IR at spawn (mean of %d steps): %s"
                           % (CALIBRATION_STEPS, " ".join(
                               "%4.0f" % (sum(s[i] for s in samples) / len(samples))
@@ -402,7 +315,7 @@ class LineFollower:
             c = self.centroid(bits)
             # Road sightings: black line only, never over a coloured checkpoint pad.
             on_colour = self.coloured_below()
-            road_bits = [False] * 7 if on_colour else self.road_bits_from(values, bits)
+            road_bits = [False] * 7 if on_colour else bits
             self.debug(values, bits, road_bits, c, on_colour)
 
             if self.state == self.FOLLOW:
