@@ -9,6 +9,80 @@ drives down one of them:
 
 Uses only the 7 IR line sensors, the two wheel motors and the two wheel
 encoders, with the Python standard library and Webots' controller module.
+
+calibrated: black-low
+raw IR at spawn (mean of 25 steps):  292  291  291  100  291  291  291
+[t=  0.40] FOLLOW   ir= 292  290  292  100  291  291  291
+           bits=0001000 road=0000000 centroid=none colour=no heading=+0.0deg travelled=-0.000
+           lo= 227  227  227  100  227  227  227 hi= 292  290  292  290  290  290  290 black_low=True
+[t=  0.91] FOLLOW   ir= 292  292  294  100  291  290  292
+           bits=0001000 road=0000000 centroid=+0.0 colour=yes heading=+0.0deg travelled=0.248
+           lo= 237  237  237  100  237  237  237 hi= 292  292  294  281  292  292  291 black_low=True
+[t=  1.42] FOLLOW   ir= 200  199  200  100  200  199  200
+           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=-0.0deg travelled=0.504
+           lo= 199  199  200  100  199  199  199 hi= 524  525  524  271  526  525  524 black_low=True
+[t=  1.94] FOLLOW   ir= 201  200  200  100  199  200  198
+           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=+0.0deg travelled=0.760
+           lo= 105  105  105   99  199  198  198 hi= 515  516  515  262  516  516  514 black_low=True
+[t=  2.45] FOLLOW   ir= 198  200  201  100  199  197  201
+           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=-0.0deg travelled=1.015
+           lo= 115  115  115  100  199  197  199 hi= 505  506  505  252  507  506  505 black_low=True
+[t=  2.96] FOLLOW   ir= 201  201  200   99  200  200  200
+           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=+0.0deg travelled=1.271
+           lo= 125  125  125   99  199  200  199 hi= 496  496  495  242  497  496  495 black_low=True
+[t=  3.47] FOLLOW   ir= 200  200  201  100  200  200  200
+           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=+0.0deg travelled=1.527
+           lo= 134  134  134  100  199  200  199 hi= 486  487  486  233  487  487  486 black_low=True
+[t=  3.98] FOLLOW   ir= 200  199  200  100  199  200  200
+           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=-0.0deg travelled=1.783
+           lo= 144  144  144  100  198  199  199 hi= 476  477  476  223  478  477  476 black_low=True
+[t=  4.50] FOLLOW   ir= 200  200  200  100  200  200  199
+           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=+0.0deg travelled=2.039
+           lo= 154  153  154  100  198  199  199 hi= 467  468  467  214  468  468  466 black_low=True
+[t=  5.01] FOLLOW   ir= 200  199  200   99  200  199  200
+           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=-0.0deg travelled=2.295
+           lo= 163  163  163   99  199  199  199 hi= 457  458  457  204  459  458  457 black_low=True
+[t=  5.52] FOLLOW   ir= 200  200  201  100  201  199  199
+           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=+0.0deg travelled=2.551
+           lo= 173  173  173  100  200  199  199 hi= 448  448  447  194  449  448  447 black_low=True
+[t=  6.03] FOLLOW   ir= 199  200  199  100  199  199  201
+           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=+0.0deg travelled=2.807
+           lo= 182  182  182   99  199  199  199 hi= 438  439  438  185  439  439  438 black_low=True
+[t=  6.54] FOLLOW   ir= 199  201  199  100  200  201  199
+           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=-0.0deg travelled=3.062
+           lo= 192  192  192  100  200  199  199 hi= 428  429  428  175  430  429  428 black_low=True
+[t=  7.06] FOLLOW   ir= 200  199  198  100  200  200  200
+           bits=1111111 road=0000000 centroid=+0.0 colour=yes heading=+0.0deg travelled=3.318
+           lo= 200  198  198  100  198  200  200 hi= 419  419  418  166  420  419  418 black_low=True
+[t=  7.57] FOLLOW   ir= 199  200  200  199  199  201  200
+           bits=1110111 road=0000000 centroid=+0.0 colour=yes heading=-0.0deg travelled=3.574
+           lo= 105  105  106  105  199  199  199 hi= 409  410  409  199  411  410  409 black_low=True
+[t=  8.08] FOLLOW   ir= 200  200  200  201  201  199  199
+           bits=1110111 road=0000000 centroid=+0.0 colour=yes heading=+0.0deg travelled=3.830
+           lo= 115  115  116  115  199  199  199 hi= 399  400  399  201  401  400  399 black_low=True
+[t=  8.59] FOLLOW   ir= 199  200  200  201  201  201  199
+           bits=1110111 road=0000000 centroid=+0.0 colour=yes heading=-0.0deg travelled=4.086
+           lo= 125  124  125  125  199  199  199 hi= 390  391  390  201  391  391  390 black_low=True
+[t=  9.10] FOLLOW   ir= 200  200  200  200  200  200  201
+           bits=1110111 road=0000000 centroid=+0.0 colour=yes heading=-0.0deg travelled=4.342
+           lo= 134  134  135  134  199  200  200 hi= 380  381  380  199  382  381  380 black_low=True
+[t=  9.62] FOLLOW   ir= 202  201  199  199  199  200  200
+           bits=1110111 road=0000000 centroid=+0.0 colour=yes heading=+0.0deg travelled=4.598
+           lo= 144  144  145  144  199  199  198 hi= 371  371  370  200  372  371  370 black_low=True
+[t= 10.13] FOLLOW   ir= 199  201  200  200  200  200  200
+           bits=1110111 road=0000000 centroid=+0.0 colour=yes heading=-0.0deg travelled=4.853
+           lo= 153  153  154  153  200  199  199 hi= 361  362  361  200  363  362  361 black_low=True
+[t= 10.64] FOLLOW   ir= 199  199  200  200  199  200  201
+           bits=1110111 road=0000000 centroid=+0.0 colour=yes heading=+0.0deg travelled=5.109
+           lo= 163  163  164  163  199  200  199 hi= 351  352  351  200  353  352  351 black_low=True
+[t= 11.15] FOLLOW   ir= 199  200  199  201  199  200  200
+           bits=1110111 road=0000000 centroid=+0.0 colour=yes heading=-0.0deg travelled=5.365
+           lo= 173  172  173  173  199  199  199 hi= 342  343  342  201  343  343  342 black_low=True
+[t= 11.66] FOLLOW   ir= 201  200  200  200  199  200  199
+           bits=1110111 road=0000000 centroid=+0.0 colour=yes heading=-0.0deg travelled=5.621
+           lo= 182  182  183  182  199  199  199 hi= 332  333  332  200  334  333  332 black_low=True
+
+
 """
 
 import math
