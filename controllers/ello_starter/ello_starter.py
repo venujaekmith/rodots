@@ -7,7 +7,8 @@
 Follows the thin black line. When a junction is found, it moves onto the
 crossing centre, turns a full 360 degrees, counts the roads it sees, and
 drives down one of them:
-  - 3 or more roads: a random road is chosen
+  - 3 or more roads: an untried road is chosen at random, never the road the
+    robot came by
   - 2 roads (straight or bend): the road closest to straight ahead
   - 1 road (dead end): that road, which turns the robot around
 
@@ -135,13 +136,14 @@ class LineFollower:
         self.front_value = 0.0
         self.x = 0.0
         self.y = 0.0
+
         # Junction memory. Each junction records its position and, for each
         # cardinal road, its state: UNTRIED, TAKEN, LINK (to another junction),
-        # DEAD_END or BLOCKED. The spawn point is a dummy junction at the origin
-        # with its exit road already taken, so the first junction gets linked.
-        self.junctions = [{"x": 0.0, "y": 0.0, "roads": {0: {"state": TAKEN}}}]
-        self.pending = (0, 0)           # (junction, direction) of the road being driven
+        # DEAD_END or BLOCKED.
+        self.junctions = []
+        self.pending = None             # (junction, direction) of the road being driven
         self.backup_goal = 0.0
+
         devices = (self.ir + [self.enc_left, self.enc_right, self.left, self.right,
                               self.cam_left, self.cam_right])
         if any(d is None for d in devices):
@@ -306,10 +308,17 @@ class LineFollower:
         return ordered[len(ordered) // 2]
 
     def junction_index(self):
-        """Index of the junction at the current position, creating it if new."""
+        """Index of the junction at the current position. A known junction is
+        matched by its nearest stored position and the odometry is snapped to
+        it, so drift cannot split one junction into two."""
+        best, best_dist = None, JUNCTION_MATCH
         for i, j in enumerate(self.junctions):
-            if math.hypot(j["x"] - self.x, j["y"] - self.y) <= JUNCTION_MATCH:
-                return i
+            dist = math.hypot(j["x"] - self.x, j["y"] - self.y)
+            if dist <= best_dist:
+                best, best_dist = i, dist
+        if best is not None:
+            self.x, self.y = self.junctions[best]["x"], self.junctions[best]["y"]
+            return best
         self.junctions.append({"x": self.x, "y": self.y, "roads": {}})
         return len(self.junctions) - 1
 
@@ -335,7 +344,7 @@ class LineFollower:
         self.pending = None
 
     def link_arrival(self, here, back):
-        """A road that was driven from a known junction has reached this one."""
+        """The road that was driven from a known junction has reached this one."""
         if self.pending is None:
             return
         src, d = self.pending
@@ -364,12 +373,14 @@ class LineFollower:
                 parts.append("%s=%s" % (DIR_NAME[d], r["state"]))
         return "junction %d at (%.2f, %.2f): %s" % (here, j["x"], j["y"], " ".join(parts))
 
-    def choose_next(self, here, scanned):
-        """Pick the next road. Prefer an untried road here, chosen at random. If
-        none is left, plan the shortest route over known links to the nearest
-        junction that still has an untried road, and take its first road."""
+    def choose_next(self, here, scanned, came_from):
+        """Pick the next road. Never the road the robot came by, and never a road
+        already taken, linked, dead-ended or blocked. An untried road here is
+        chosen at random. Only when none is left does the robot route back over
+        known links to the nearest junction with an untried road."""
         roads = self.junctions[here]["roads"]
-        untried = [d for d in scanned if roads.get(d, {}).get("state") == UNTRIED]
+        untried = [d for d in scanned
+                   if d != came_from and roads.get(d, {}).get("state") == UNTRIED]
         if untried:
             return random.choice(untried), "untried road"
 
@@ -392,7 +403,7 @@ class LineFollower:
         while parent[node][0] != here:
             node = parent[node][0]
         first = parent[node][1]
-        return first, "route to untried road at junction %d" % target
+        return first, "backtrack over known links to junction %d" % target
 
     def start_scan(self):
         self.state = self.SCAN
@@ -490,20 +501,34 @@ class LineFollower:
                         else:
                             self.start_turn_to(0.0)
                         continue
+
                     here = self.junction_index()
-                    # The robot arrived heading h, so the road it came from is h + 2.
-                    arrived_from = (dir_of(self.scan_start_heading) + 2) % 4
-                    self.link_arrival(here, arrived_from)
-                    self.note_roads(here, scanned)
+                    # The road the robot came by: the opposite of the road it drove.
+                    # Fall back to its heading only when no road was being driven.
+                    if self.pending is not None:
+                        came_from = (self.pending[1] + 2) % 4
+                    else:
+                        came_from = (dir_of(self.scan_start_heading) + 2) % 4
+                    self.link_arrival(here, came_from)
+                    roads_here = self.junctions[here]["roads"]
+                    # The came-from road is never offered as a choice. Mark it TAKEN
+                    # unless it is already a link, dead end or block, which must be kept.
+                    if roads_here.get(came_from, {}).get("state", UNTRIED) == UNTRIED:
+                        roads_here[came_from] = {"state": TAKEN}
+                    self.note_roads(here, [d for d in scanned if d != came_from])
                     print(self.describe(here))
-                    choice = self.choose_next(here, scanned)
+
+                    choice = self.choose_next(here, scanned, came_from)
                     if choice is None:
                         print("maze explored: no untried road is reachable; stopping")
                         self.state = self.STOPPED
                     else:
                         d, reason = choice
                         print("chose road %s at junction %d (%s)" % (DIR_NAME[d], here, reason))
-                        self.junctions[here]["roads"][d] = {"state": TAKEN}
+                        # Only mark a road TAKEN if it was untried. A link must keep its
+                        # destination, or the map loses the connection.
+                        if roads_here.get(d, {}).get("state") == UNTRIED:
+                            roads_here[d] = {"state": TAKEN}
                         self.pending = (here, d)
                         self.start_turn_to(d * HALF_PI - self.scan_start_heading)
                 else:
