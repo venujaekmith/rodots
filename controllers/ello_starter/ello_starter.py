@@ -95,6 +95,8 @@ PARK_DISTANCE = 0.35            # m driven onto YELLOW after it is confirmed, th
 WHITE_MARGIN = 15.0             # a sensor this far above the spawn floor is the white start line
 WHITE_CONFIRM = 3               # consecutive readings before the white line counts
 START_LINE_RADIUS = 0.8         # m: a white line this close to the start is the start line
+START_BOX_RADIUS = 1.0          # m: a GREEN pad this close to the start is the start box;
+                                # the GREEN checkpoint is well beyond this
 
 
 def classify_pad(r, g, b):
@@ -195,6 +197,8 @@ class LineFollower:
         self.white_votes = deque(maxlen=WHITE_CONFIRM)
         self.white_last = False
         self.white_start_flag = False   # True on the step the start white line is crossed
+        self.box_entry_flag = False     # True on the step the start box is re-entered
+        self.green_last = False
         self.forced_scan = False        # True while scanning at a non-junction spot
         self.backup_goal = 0.0
         self.arrival_heading = 0.0      # travel heading when the junction was reached
@@ -412,7 +416,7 @@ class LineFollower:
         fallback when the line is not seen."""
         if self.max_from_start < START_MIN_EXCURSION:
             return False
-        if self.white_start_flag:
+        if self.white_start_flag or self.box_entry_flag:
             return True
         if math.hypot(self.x, self.y) > START_BLOCK_RADIUS:
             return False
@@ -426,6 +430,8 @@ class LineFollower:
         self.drive(0.0, 0.0)
         print("%s: reversing and blocking this road" % reason)
         self.search_here = search
+        if not search:
+            print("marking this road as explored: it leads back to the start")
         self.close_pending(BLOCKED)
         self.backup_goal = self.travelled - OBSTACLE_BACKUP
         # Turn to face back along the line, toward the junction.
@@ -696,6 +702,16 @@ class LineFollower:
             self.debug(values, bits, road_bits, c, on_colour)
 
             self.max_from_start = max(self.max_from_start, math.hypot(self.x, self.y))
+
+            # Start box: the GREEN start pad seen again after the robot has gone away.
+            green_now = confirmed_pad == "GREEN"
+            self.box_entry_flag = (green_now and not self.green_last
+                                   and self.max_from_start >= START_MIN_EXCURSION
+                                   and math.hypot(self.x, self.y) <= START_BOX_RADIUS)
+            if self.box_entry_flag:
+                print("START BOX seen again at (%.2f, %.2f): this road leads back to the start"
+                      % (self.x, self.y))
+            self.green_last = green_now
 
             if self.state == self.FOLLOW:
                 if self.at_start_entrance():
