@@ -25,6 +25,7 @@ WEIGHTS = (-3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0)   # index 0 is the robot's left
 WHEEL_RADIUS = 0.10
 AXLE_LENGTH = 0.34
 TWO_PI = 2.0 * math.pi
+HALF_PI = math.pi / 2.0
 
 CRUISE = 5.0                 # rad/s on straights
 CURVE_FLOOR = 2.0            # rad/s on sharp bends
@@ -65,7 +66,14 @@ MIN_ROAD_HITS = 3
 JUNCTION_MATCH = 0.35           # m: a scan this close to a stored junction is the same junction
 OBSTACLE_TRIGGER = 520.0        # front lookup 1000 - 2000*d: 520 is 0.24 m from the sensor
 OBSTACLE_BACKUP = 0.10          # m to reverse after an obstacle
-BLOCK_TOL = math.radians(25)    # a road this close to a blocked bearing counts as blocked
+UNTRIED, TAKEN, LINK, DEAD_END, BLOCKED = "UNTRIED", "TAKEN", "LINK", "DEAD_END", "BLOCKED"
+DIR_NAME = ("E", "N", "W", "S")  # direction index 0..3 = bearing 0, 90, 180, -90 degrees
+
+
+def dir_of(angle):
+    """Quantise an absolute bearing to a cardinal direction index 0..3."""
+    return int(round(angle / HALF_PI)) % 4
+
 DEBUG_PERIOD_S = 0.5            # how often the sensor dump is printed
 
 
@@ -123,8 +131,12 @@ class LineFollower:
         self.front_value = 0.0
         self.x = 0.0
         self.y = 0.0
-        self.junctions = []             # {"x", "y", "blocked": [absolute road bearings]}
-        self.leaving_junction = None    # index of the junction the current road starts from
+        # Junction memory. Each junction records its position and, for each
+        # cardinal road, its state: UNTRIED, TAKEN, LINK (to another junction),
+        # DEAD_END or BLOCKED. The spawn point is a dummy junction at the origin
+        # with its exit road already taken, so the first junction gets linked.
+        self.junctions = [{"x": 0.0, "y": 0.0, "roads": {0: {"state": TAKEN}}}]
+        self.pending = (0, 0)           # (junction, direction) of the road being driven
         self.backup_goal = 0.0
         devices = (self.ir + [self.enc_left, self.enc_right, self.left, self.right,
                               self.cam_left, self.cam_right])
@@ -253,6 +265,7 @@ class LineFollower:
                 self.drive(SEARCH_SPEED * side, -SEARCH_SPEED * side)
             else:
                 print("line not found after search; turning around")
+                self.close_pending(DEAD_END)
                 self.drive(0.0, 0.0)
                 # Turn back to the heading the robot had on the line, not its current
                 # heading, which the search sweep may have disturbed.
@@ -293,7 +306,7 @@ class LineFollower:
         for i, j in enumerate(self.junctions):
             if math.hypot(j["x"] - self.x, j["y"] - self.y) <= JUNCTION_MATCH:
                 return i
-        self.junctions.append({"x": self.x, "y": self.y, "blocked": []})
+        self.junctions.append({"x": self.x, "y": self.y, "roads": {}})
         return len(self.junctions) - 1
 
     def start_obstacle_escape(self):
@@ -302,27 +315,86 @@ class LineFollower:
         self.drive(0.0, 0.0)
         print("obstacle ahead (front %.0f): reversing and blocking this road"
               % self.front_value)
-        if self.leaving_junction is not None:
-            self.junctions[self.leaving_junction]["blocked"].append(self.travel_heading)
+        self.close_pending(BLOCKED)
         self.backup_goal = self.travelled - OBSTACLE_BACKUP
         # Turn to face back along the line, toward the junction.
         self.target_heading = angle_wrap(self.travel_heading + math.pi)
         self.state = self.BACKUP
+
+    def close_pending(self, state):
+        """The road being driven has ended in a dead end or an obstacle."""
+        if self.pending is None:
+            return
+        j, d = self.pending
+        self.junctions[j]["roads"][d] = {"state": state}
+        print("memory: junction %d road %s is %s" % (j, DIR_NAME[d], state))
+        self.pending = None
+
+    def link_arrival(self, here, back):
+        """A road that was driven from a known junction has reached this one."""
+        if self.pending is None:
+            return
+        src, d = self.pending
+        self.pending = None
+        self.junctions[src]["roads"][d] = {"state": LINK, "to": here, "back": back}
+        self.junctions[here]["roads"][back] = {"state": LINK, "to": src, "back": d}
+        print("memory: junction %d road %s links to junction %d"
+              % (src, DIR_NAME[d], here))
+
+    def note_roads(self, here, dirs):
+        roads = self.junctions[here]["roads"]
+        for d in dirs:
+            if d not in roads:
+                roads[d] = {"state": UNTRIED}
+
+    def describe(self, here):
+        j = self.junctions[here]
+        parts = []
+        for d in range(4):
+            r = j["roads"].get(d)
+            if r is None:
+                continue
+            if r["state"] == LINK:
+                parts.append("%s=LINK->%d" % (DIR_NAME[d], r["to"]))
+            else:
+                parts.append("%s=%s" % (DIR_NAME[d], r["state"]))
+        return "junction %d at (%.2f, %.2f): %s" % (here, j["x"], j["y"], " ".join(parts))
+
+    def choose_next(self, here, scanned):
+        """Pick the next road. Prefer an untried road here, chosen at random. If
+        none is left, plan the shortest route over known links to the nearest
+        junction that still has an untried road, and take its first road."""
+        roads = self.junctions[here]["roads"]
+        untried = [d for d in scanned if roads.get(d, {}).get("state") == UNTRIED]
+        if untried:
+            return random.choice(untried), "untried road"
+
+        parent = {here: None}
+        queue = deque([here])
+        target = None
+        while queue:
+            j = queue.popleft()
+            if j != here and any(r["state"] == UNTRIED
+                                 for r in self.junctions[j]["roads"].values()):
+                target = j
+                break
+            for d, r in self.junctions[j]["roads"].items():
+                if r["state"] == LINK and r["to"] not in parent:
+                    parent[r["to"]] = (j, d)
+                    queue.append(r["to"])
+        if target is None:
+            return None
+        node = target
+        while parent[node][0] != here:
+            node = parent[node][0]
+        first = parent[node][1]
+        return first, "route to untried road at junction %d" % target
 
     def start_scan(self):
         self.state = self.SCAN
         self.scan_angle = 0.0
         self.road_bearings = []
         self.scan_start_heading = self.heading
-
-    def choose_road(self, roads):
-        """Return the target heading relative to the scan start, or None."""
-        if not roads:
-            return None
-        if len(roads) >= 3:
-            return random.choice(roads)
-        # One or two roads: take the one closest to straight ahead.
-        return min(roads, key=lambda a: abs(a))
 
     def debug(self, values, bits, road_bits, c, on_colour, force=False):
         """Print the sensor state so the run can be checked from the console."""
@@ -404,27 +476,32 @@ class LineFollower:
                     self.drive(0.0, 0.0)
                     roads = find_roads(self.road_bearings)
                     print("scan: %d road sightings" % len(self.road_bearings))
+                    scanned = sorted({dir_of(self.scan_start_heading + r) for r in roads})
+                    if len(scanned) <= 2:
+                        # A bend or a straight stretch, not a junction: follow the road
+                        # closest to straight ahead without recording anything.
+                        if roads:
+                            print("bend or straight; following the road closest to ahead")
+                            self.start_turn_to(min(roads, key=abs))
+                        else:
+                            self.start_turn_to(0.0)
+                        continue
                     here = self.junction_index()
-                    blocked_rel = [angle_wrap(b - self.scan_start_heading)
-                                   for b in self.junctions[here]["blocked"]]
-                    open_roads = [r for r in roads
-                                  if all(abs(angle_wrap(r - b)) > BLOCK_TOL
-                                         for b in blocked_rel)]
-                    choice = self.choose_road(open_roads)
-                    print("roads found: %d at %s degrees; open: %d"
-                          % (len(roads), [round(math.degrees(r)) for r in roads],
-                             len(open_roads)))
-                    if choice is not None:
-                        self.leaving_junction = here
-                    if choice is None and roads and not open_roads:
-                        print("every road here is blocked; stopping")
+                    # The robot arrived heading h, so the road it came from is h + 2.
+                    arrived_from = (dir_of(self.scan_start_heading) + 2) % 4
+                    self.link_arrival(here, arrived_from)
+                    self.note_roads(here, scanned)
+                    print(self.describe(here))
+                    choice = self.choose_next(here, scanned)
+                    if choice is None:
+                        print("maze explored: no untried road is reachable; stopping")
                         self.state = self.STOPPED
-                    elif choice is None:
-                        print("no road found; resuming line search")
-                        self.start_turn_to(0.0)
                     else:
-                        print("chose road at %d degrees" % round(math.degrees(choice)))
-                        self.start_turn_to(choice)
+                        d, reason = choice
+                        print("chose road %s at junction %d (%s)" % (DIR_NAME[d], here, reason))
+                        self.junctions[here]["roads"][d] = {"state": TAKEN}
+                        self.pending = (here, d)
+                        self.start_turn_to(d * HALF_PI - self.scan_start_heading)
                 else:
                     self.drive(-SCAN_SPEED, SCAN_SPEED)
 
