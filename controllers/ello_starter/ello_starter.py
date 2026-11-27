@@ -335,11 +335,20 @@ class LineFollower:
         self.state = self.BACKUP
 
     def close_pending(self, state):
-        """The road being driven has ended in a dead end or an obstacle."""
+        """The road being driven has ended in a dead end or an obstacle. If it was
+        a known link, both ends are blocked so no route can cross it."""
         if self.pending is None:
             return
         j, d = self.pending
-        self.junctions[j]["roads"][d] = {"state": state}
+        old = self.junctions[j]["roads"].get(d, {})
+        new = {"state": state}
+        if "to" in old:
+            new["to"], new["back"] = old["to"], old["back"]
+            far = self.junctions[old["to"]]["roads"].get(old["back"])
+            if far is not None:
+                self.junctions[old["to"]]["roads"][old["back"]] = {
+                    "state": state, "to": j, "back": d}
+        self.junctions[j]["roads"][d] = new
         print("memory: junction %d road %s is %s" % (j, DIR_NAME[d], state))
         self.pending = None
 
@@ -373,37 +382,47 @@ class LineFollower:
                 parts.append("%s=%s" % (DIR_NAME[d], r["state"]))
         return "junction %d at (%.2f, %.2f): %s" % (here, j["x"], j["y"], " ".join(parts))
 
+    def route_to_untried(self, here, avoid):
+        """First road on the shortest route over known links to a junction that has
+        an untried road. The road `avoid` is not used as the first step. Returns
+        None when no such route exists."""
+        parent = {here: None}
+        queue = deque([here])
+        while queue:
+            j = queue.popleft()
+            if j != here and any(r["state"] == UNTRIED
+                                 for r in self.junctions[j]["roads"].values()):
+                node = j
+                while parent[node][0] != here:
+                    node = parent[node][0]
+                return parent[node][1]
+            for d, r in self.junctions[j]["roads"].items():
+                if j == here and d == avoid:
+                    continue
+                if r["state"] == LINK and r["to"] not in parent:
+                    parent[r["to"]] = (j, d)
+                    queue.append(r["to"])
+        return None
+
     def choose_next(self, here, scanned, came_from):
         """Pick the next road. Never the road the robot came by, and never a road
         already taken, linked, dead-ended or blocked. An untried road here is
-        chosen at random. Only when none is left does the robot route back over
-        known links to the nearest junction with an untried road."""
+        chosen at random. Otherwise the robot routes to the nearest junction with
+        an untried road, avoiding the arrival road. The arrival road is used only
+        when no other route exists."""
         roads = self.junctions[here]["roads"]
         untried = [d for d in scanned
                    if d != came_from and roads.get(d, {}).get("state") == UNTRIED]
         if untried:
             return random.choice(untried), "untried road"
 
-        parent = {here: None}
-        queue = deque([here])
-        target = None
-        while queue:
-            j = queue.popleft()
-            if j != here and any(r["state"] == UNTRIED
-                                 for r in self.junctions[j]["roads"].values()):
-                target = j
-                break
-            for d, r in self.junctions[j]["roads"].items():
-                if r["state"] == LINK and r["to"] not in parent:
-                    parent[r["to"]] = (j, d)
-                    queue.append(r["to"])
-        if target is None:
-            return None
-        node = target
-        while parent[node][0] != here:
-            node = parent[node][0]
-        first = parent[node][1]
-        return first, "backtrack over known links to junction %d" % target
+        first = self.route_to_untried(here, came_from)
+        if first is not None:
+            return first, "route over known links to an untried road"
+        first = self.route_to_untried(here, None)
+        if first is not None:
+            return first, "no other route: retracing the arrival road"
+        return None
 
     def start_scan(self):
         self.state = self.SCAN
