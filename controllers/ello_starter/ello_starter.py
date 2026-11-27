@@ -149,7 +149,9 @@ class LineFollower:
         # the robot drives is tied to a junction, including the first one.
         self.junctions = [{"x": 0.0, "y": 0.0, "roads": {0: {"state": TAKEN}}, "entry": None}]
         self.pending = (0, 0)           # (junction, direction) of the road being driven
-        self.stop_after_backup = False  # set when the blocked road is the only road from the start
+        self.search_here = False        # after an obstacle: scan 360 at this spot for an open road
+        self.search_failures = 0        # searches in a row that found no unexplored road
+        self.forced_scan = False        # True while scanning at a non-junction spot
         self.backup_goal = 0.0
         self.arrival_heading = 0.0      # travel heading when the junction was reached
 
@@ -344,15 +346,13 @@ class LineFollower:
         # Heading toward the origin means the dot product of heading and position is negative.
         return self.x * math.cos(self.heading) + self.y * math.sin(self.heading) < 0
 
-    def start_obstacle_escape(self, reason):
+    def start_obstacle_escape(self, reason, search=False):
         """Stop, reverse and block the road the robot is on, so every later visit
-        avoids it. Used for an obstacle ahead and for the start point."""
+        avoids it. For an obstacle (search=True) the robot then scans 360 degrees
+        at this spot for an unexplored road; for the start point it turns back."""
         self.drive(0.0, 0.0)
         print("%s: reversing and blocking this road" % reason)
-        if self.pending is not None and self.pending[0] == 0:
-            self.stop_after_backup = True
-            print("the only road from the start is blocked; there is no other way, stopping "
-                  "after reversing")
+        self.search_here = search
         self.close_pending(BLOCKED)
         self.backup_goal = self.travelled - OBSTACLE_BACKUP
         # Turn to face back along the line, toward the junction.
@@ -521,10 +521,11 @@ class LineFollower:
             if self.state == self.FOLLOW:
                 if self.at_start_entrance():
                     # The start point is blocked like an obstacle: go back the way it came.
-                    self.start_obstacle_escape("START POINT reached: blocking this road")
+                    self.start_obstacle_escape("START POINT reached: blocking this road", search=False)
                     continue
                 if self.front_value >= OBSTACLE_TRIGGER:
-                    self.start_obstacle_escape("obstacle ahead (front %.0f)" % self.front_value)
+                    self.start_obstacle_escape("obstacle ahead (front %.0f)" % self.front_value,
+                                               search=True)
                     continue
                 # Junction candidate: an outermost sensor sees a black road.
                 if road_bits[0] or road_bits[6]:
@@ -557,7 +558,9 @@ class LineFollower:
                     roads = find_roads(self.road_bearings)
                     print("scan: %d road sightings" % len(self.road_bearings))
                     scanned = sorted({dir_of(self.scan_start_heading + r) for r in roads})
-                    if len(scanned) <= 2:
+                    was_forced = self.forced_scan
+                    self.forced_scan = False
+                    if len(scanned) <= 2 and not was_forced:
                         # A bend or a straight stretch, not a junction: follow the road
                         # closest to straight ahead without recording anything.
                         if roads:
@@ -586,19 +589,38 @@ class LineFollower:
                     avoid = {behind, entry}
 
                     roads_here = self.junctions[here]["roads"]
-                    for d in avoid:
-                        if roads_here.get(d, {}).get("state", UNTRIED) == UNTRIED:
-                            roads_here[d] = {"state": TAKEN}
+                    if not was_forced:
+                        for d in avoid:
+                            if roads_here.get(d, {}).get("state", UNTRIED) == UNTRIED:
+                                roads_here[d] = {"state": TAKEN}
                     self.note_roads(here, [d for d in scanned if d not in avoid])
                     print(self.describe(here))
 
+                    if was_forced:
+                        # The obstacle road is ahead of the robot: block it. The road back
+                        # toward the junction is not blocked; it may still be explored.
+                        ahead = dir_of(self.arrival_heading)
+                        roads_here[ahead] = {"state": BLOCKED}
+                        avoid = {ahead}
+                        self.note_roads(here, [d for d in scanned if d not in avoid])
+
                     choice = self.choose_next(here, scanned, avoid)
-                    if choice is None:
+                    if choice is None and was_forced:
+                        self.search_failures += 1
+                        if self.search_failures >= 2:
+                            print("no unexplored road found after repeated searches; stopping")
+                            self.state = self.STOPPED
+                        else:
+                            print("no unexplored road here; turning back the way it came")
+                            self.target_heading = angle_wrap(self.arrival_heading + math.pi)
+                            self.state = self.TURN
+                    elif choice is None:
                         print("every unexplored road here is only reachable by going back "
                               "the way the robot came; stopping")
                         self.state = self.STOPPED
                     else:
                         d, reason = choice
+                        self.search_failures = 0
                         print("chose road %s at junction %d (%s)" % (DIR_NAME[d], here, reason))
                         # Only mark a road TAKEN if it was untried. A link must keep its
                         # destination, or the map loses the connection.
@@ -612,7 +634,16 @@ class LineFollower:
             elif self.state == self.BACKUP:
                 if self.travelled <= self.backup_goal:
                     self.drive(0.0, 0.0)
-                    self.state = self.STOPPED if self.stop_after_backup else self.TURN
+                    if self.search_here:
+                        # The robot is in the middle of a road, so it may have an
+                        # unexplored side road here. Search 360 degrees for one.
+                        self.arrival_heading = self.heading
+                        self.search_here = False
+                        self.forced_scan = True
+                        print("searching 360 degrees here for an unexplored road")
+                        self.start_scan()
+                    else:
+                        self.state = self.TURN
                 else:
                     self.drive(-APPROACH_SPEED, -APPROACH_SPEED)
 
