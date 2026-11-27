@@ -73,7 +73,6 @@ JUNCTION_MATCH = 0.35           # m: a scan this close to a stored junction is t
 OBSTACLE_TRIGGER = 520.0        # front lookup 1000 - 2000*d: 520 is 0.24 m from the sensor
 OBSTACLE_BACKUP = 0.10          # m to reverse after the start point is reached
 REVERSE_MAX = 3.0               # m: give up reversing after this far without finding a junction
-OBSTACLE_CLEARANCE = 0.25       # m: back this far from the obstacle before looking for a junction
 START_BLOCK_RADIUS = 0.5        # m: coming within this of the start point is entering the start
 START_MIN_EXCURSION = 1.0       # m the robot must have gone away before the start counts
 UNTRIED, TAKEN, LINK, DEAD_END, BLOCKED = "UNTRIED", "TAKEN", "LINK", "DEAD_END", "BLOCKED"
@@ -186,7 +185,7 @@ class LineFollower:
         # the robot drives is tied to a junction, including the first one.
         self.junctions = [{"x": 0.0, "y": 0.0, "roads": {0: {"state": TAKEN}}, "entry": None}]
         self.pending = (0, 0)           # (junction, direction) of the road being driven
-        self.search_here = False        # after an obstacle: scan 360 at the junction for an open road
+        self.search_here = False        # after an obstacle: scan 360 at this spot for an open road
         self.search_failures = 0        # searches in a row that found no unexplored road
         self.reverse_start = 0.0        # travelled value when reversing after an obstacle began
         # Checkpoints and the white start line.
@@ -253,7 +252,6 @@ class LineFollower:
         # Debug output.
         self.steps = 0
         self.last_debug = -1e9
-        self.front_value_debug = 0.0
 
     # ---- motion and odometry -------------------------------------------
     def drive(self, left, right):
@@ -849,17 +847,10 @@ class LineFollower:
                     self.follow(bits, c)
 
             elif self.state == self.REVERSE:
-                driven = self.reverse_start - self.travelled
-                if driven >= REVERSE_MAX:
+                if self.reverse_start - self.travelled >= REVERSE_MAX:
                     self.drive(0.0, 0.0)
                     print("no junction within %.1f m while reversing; stopping" % REVERSE_MAX)
                     self.state = self.STOPPED
-                    continue
-                if driven < OBSTACLE_CLEARANCE:
-                    # Still close to the obstacle: the outer sensors may see the line here
-                    # without a junction. Keep backing up and ignore them.
-                    self.outer_votes = 0
-                    self.drive(-APPROACH_SPEED, -APPROACH_SPEED)
                     continue
                 # Same junction test as going forward: an outer sensor on a road.
                 if road_bits[0] or road_bits[6]:
@@ -868,8 +859,8 @@ class LineFollower:
                     self.outer_votes = 0
                 if self.outer_votes >= JUNCTION_CONFIRM_STEPS:
                     self.outer_votes = 0
-                    # Back up the rest of the way to the crossing centre. The BACKUP state
-                    # then sees search_here=True and starts the 360 scan there.
+                    # Back up the rest of the way to the crossing centre. The existing
+                    # BACKUP state then sees search_here=True and starts the 360 scan.
                     self.backup_goal = self.travelled - JUNCTION_CENTER_OFFSET
                     self.state = self.BACKUP
                     print("junction found while reversing; moving onto the crossing centre")
@@ -880,8 +871,8 @@ class LineFollower:
                 if self.travelled <= self.backup_goal:
                     self.drive(0.0, 0.0)
                     if self.search_here:
-                        # The robot is at a junction on the road it came in by, so it may
-                        # have an unexplored road here. Search 360 degrees for one.
+                        # The robot is in the middle of a road, so it may have an
+                        # unexplored side road here. Search 360 degrees for one.
                         self.arrival_heading = self.heading
                         self.search_here = False
                         self.forced_scan = True
