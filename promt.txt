@@ -1,3 +1,5 @@
+so here im planing to build someting like its following lines and avoid obstackles. then remembers turn decisions robo got and undo them and return back to the junction again if that road fails. then choose another turn from that junction. like wise make this algo efficient and add other extra things too. make a promt to this. use high effiecent data structures and algorithms. 
+
 ### Role & Objective
 Act as an expert autonomous robotics engineer specializing in Webots R2025a, embedded control systems, and graph-based path planning. Write a complete, production-grade, offline Python 3 controller for the virtual robot **eLLo** in **REIDBOTS: Mission K-391**[cite: 2, 5, 10].
 
