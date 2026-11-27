@@ -71,7 +71,8 @@ ROAD_CLUSTER_TOL = math.radians(25)
 MIN_ROAD_HITS = 3
 JUNCTION_MATCH = 0.35           # m: a scan this close to a stored junction is the same junction
 OBSTACLE_TRIGGER = 520.0        # front lookup 1000 - 2000*d: 520 is 0.24 m from the sensor
-OBSTACLE_BACKUP = 0.10          # m to reverse after an obstacle
+OBSTACLE_BACKUP = 0.10          # m to reverse after the start point is reached
+REVERSE_MAX = 3.0               # m: give up reversing after this far without finding a junction
 START_BLOCK_RADIUS = 0.5        # m: coming within this of the start point is entering the start
 START_MIN_EXCURSION = 1.0       # m the robot must have gone away before the start counts
 UNTRIED, TAKEN, LINK, DEAD_END, BLOCKED = "UNTRIED", "TAKEN", "LINK", "DEAD_END", "BLOCKED"
@@ -150,6 +151,7 @@ class LineFollower:
     APPROACH = "APPROACH"
     SCAN = "SCAN"
     TURN = "TURN"
+    REVERSE = "REVERSE"
     BACKUP = "BACKUP"
     FINISH = "FINISH"
     STOPPED = "STOPPED"
@@ -185,6 +187,7 @@ class LineFollower:
         self.pending = (0, 0)           # (junction, direction) of the road being driven
         self.search_here = False        # after an obstacle: scan 360 at this spot for an open road
         self.search_failures = 0        # searches in a row that found no unexplored road
+        self.reverse_start = 0.0        # travelled value when reversing after an obstacle began
         # Checkpoints and the white start line.
         self.target_index = 0           # index into CHECKPOINTS: the colour being sought
         self.pads = {}                  # colour -> (junction, direction) of the road it lies on
@@ -424,17 +427,22 @@ class LineFollower:
         return self.x * math.cos(self.heading) + self.y * math.sin(self.heading) < 0
 
     def start_obstacle_escape(self, reason, search=False):
-        """Stop, reverse and block the road the robot is on, so every later visit
-        avoids it. For an obstacle (search=True) the robot then scans 360 degrees
-        at this spot for an unexplored road; for the start point it turns back."""
+        """Stop and block the road the robot is on, so later visits avoid it.
+        For an obstacle (search=True) the robot reverses until it finds a junction,
+        then scans 360 degrees there. For the start point it backs up and turns back."""
         self.drive(0.0, 0.0)
-        print("%s: reversing and blocking this road" % reason)
-        self.search_here = search
-        if not search:
-            print("marking this road as explored: it leads back to the start")
+        print("%s: blocking this road" % reason)
         self.close_pending(BLOCKED)
+        if search:
+            self.search_here = True
+            self.reverse_start = self.travelled
+            self.outer_votes = 0
+            self.state = self.REVERSE
+            print("reversing until a junction is found")
+            return
+        self.search_here = False
+        print("marking this road as explored: it leads back to the start")
         self.backup_goal = self.travelled - OBSTACLE_BACKUP
-        # Turn to face back along the line, toward the junction.
         self.target_heading = angle_wrap(self.travel_heading + math.pi)
         self.state = self.BACKUP
 
@@ -716,7 +724,7 @@ class LineFollower:
             if self.state == self.FOLLOW:
                 if self.at_start_entrance():
                     # The start point is blocked like an obstacle: go back the way it came.
-                    self.start_obstacle_escape("START POINT reached: blocking this road", search=False)
+                    self.start_obstacle_escape("START POINT reached", search=False)
                     continue
                 if self.front_value >= OBSTACLE_TRIGGER:
                     self.start_obstacle_escape("obstacle ahead (front %.0f)" % self.front_value,
@@ -837,6 +845,27 @@ class LineFollower:
                     self.state = self.STOPPED
                 else:
                     self.follow(bits, c)
+
+            elif self.state == self.REVERSE:
+                if self.reverse_start - self.travelled >= REVERSE_MAX:
+                    self.drive(0.0, 0.0)
+                    print("no junction within %.1f m while reversing; stopping" % REVERSE_MAX)
+                    self.state = self.STOPPED
+                    continue
+                # Same junction test as going forward: an outer sensor on a road.
+                if road_bits[0] or road_bits[6]:
+                    self.outer_votes += 1
+                else:
+                    self.outer_votes = 0
+                if self.outer_votes >= JUNCTION_CONFIRM_STEPS:
+                    self.outer_votes = 0
+                    # Back up the rest of the way to the crossing centre. The existing
+                    # BACKUP state then sees search_here=True and starts the 360 scan.
+                    self.backup_goal = self.travelled - JUNCTION_CENTER_OFFSET
+                    self.state = self.BACKUP
+                    print("junction found while reversing; moving onto the crossing centre")
+                else:
+                    self.drive(-APPROACH_SPEED, -APPROACH_SPEED)
 
             elif self.state == self.BACKUP:
                 if self.travelled <= self.backup_goal:
