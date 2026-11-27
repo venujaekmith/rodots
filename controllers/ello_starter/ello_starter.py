@@ -1,7 +1,3 @@
-#following lines choosing paths in junctions avoid obstacles. but returning to start point
-# make the path selection more inteligent
-
-
 """eLLo line follower with junction scan.
 
 Follows the thin black line. When a junction is found, it moves onto the
@@ -76,6 +72,8 @@ MIN_ROAD_HITS = 3
 JUNCTION_MATCH = 0.35           # m: a scan this close to a stored junction is the same junction
 OBSTACLE_TRIGGER = 520.0        # front lookup 1000 - 2000*d: 520 is 0.24 m from the sensor
 OBSTACLE_BACKUP = 0.10          # m to reverse after an obstacle
+START_BLOCK_RADIUS = 0.5        # m: coming within this of the start point is entering the start
+START_MIN_EXCURSION = 1.0       # m the robot must have gone away before the start counts
 UNTRIED, TAKEN, LINK, DEAD_END, BLOCKED = "UNTRIED", "TAKEN", "LINK", "DEAD_END", "BLOCKED"
 DIR_NAME = ("E", "N", "W", "S")  # direction index 0..3 = bearing 0, 90, 180, -90 degrees
 
@@ -141,6 +139,7 @@ class LineFollower:
         self.front_value = 0.0
         self.x = 0.0
         self.y = 0.0
+        self.max_from_start = 0.0       # farthest the robot has been from the start point
 
         # Junction memory. Each junction records its position, the road it was
         # first entered by ("entry"), and for each cardinal road its state:
@@ -331,12 +330,21 @@ class LineFollower:
         self.junctions.append({"x": self.x, "y": self.y, "roads": {}, "entry": None})
         return len(self.junctions) - 1
 
-    def start_obstacle_escape(self):
-        """An obstacle is ahead on this road: stop, reverse, and block the road at
-        the junction it starts from, so every later visit avoids it."""
+    def at_start_entrance(self):
+        """True when the robot, having gone away from the start, is coming back to
+        it. The start point is the odometry origin."""
+        if self.max_from_start < START_MIN_EXCURSION:
+            return False
+        if math.hypot(self.x, self.y) > START_BLOCK_RADIUS:
+            return False
+        # Heading toward the origin means the dot product of heading and position is negative.
+        return self.x * math.cos(self.heading) + self.y * math.sin(self.heading) < 0
+
+    def start_obstacle_escape(self, reason):
+        """Stop, reverse and block the road the robot is on, so every later visit
+        avoids it. Used for an obstacle ahead and for the start point."""
         self.drive(0.0, 0.0)
-        print("obstacle ahead (front %.0f): reversing and blocking this road"
-              % self.front_value)
+        print("%s: reversing and blocking this road" % reason)
         self.close_pending(BLOCKED)
         self.backup_goal = self.travelled - OBSTACLE_BACKUP
         # Turn to face back along the line, toward the junction.
@@ -500,9 +508,15 @@ class LineFollower:
             self.front_value = self.read_front()
             self.debug(values, bits, road_bits, c, on_colour)
 
+            self.max_from_start = max(self.max_from_start, math.hypot(self.x, self.y))
+
             if self.state == self.FOLLOW:
+                if self.at_start_entrance():
+                    # The start point is blocked like an obstacle: go back the way it came.
+                    self.start_obstacle_escape("START POINT reached: blocking this road")
+                    continue
                 if self.front_value >= OBSTACLE_TRIGGER:
-                    self.start_obstacle_escape()
+                    self.start_obstacle_escape("obstacle ahead (front %.0f)" % self.front_value)
                     continue
                 # Junction candidate: an outermost sensor sees a black road.
                 if road_bits[0] or road_bits[6]:
