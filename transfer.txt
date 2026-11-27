@@ -1,61 +1,20 @@
-[t= 14.22] FOLLOW   ir= 196  195  196  100  195  197  197
-           front=0 bits=0001000 road=0000000 centroid=+0.0 colour=yes heading=+92.9deg travelled=6.121
+INFO: ello_starter: Starting controller: python.exe -u ello_starter.py
+calibrated: threshold 166 (black 99, floor 291)
+raw IR at spawn (mean of 25 steps):  292  291  291  100  291  291  291
+[t=  0.40] FOLLOW   ir= 292  290  292  100  291  291  291
+           front=0 bits=0001000 road=0000000 centroid=none colour=no heading=+0.0deg travelled=-0.000
            threshold=166 (black 99, floor 291)
-obstacle ahead (front 534): reversing and blocking this road
-the only road from the start is blocked; there is no other way, stopping after reversing
-memory: junction 0 road E is BLOCKED
-[t= 14.74] BACKUP   ir= 101  100  100  100   99  100  101
-           front=0 bits=1111111 road=1111111 centroid=none colour=no heading=+92.2deg travelled=6.139
+[t=  0.91] FOLLOW   ir= 292  292  294  100  291  290  292
+           front=0 bits=0001000 road=0000000 centroid=+0.0 colour=yes heading=+0.0deg travelled=0.248
            threshold=166 (black 99, floor 291)
-[t= 15.25] STOPPED  ir= 145  145  144  100   99  145  144
-           front=0 bits=1111111 road=0000000 centroid=none colour=yes heading=+92.2deg travelled=6.107
+[t=  1.42] FOLLOW   ir= 200  199  200  100  200  199  200
+           front=0 bits=0001000 road=0000000 centroid=+0.0 colour=yes heading=-0.0deg travelled=0.504
            threshold=166 (black 99, floor 291)
-[t= 15.76] STOPPED  ir= 199  201  199  100  100  200  200
-           front=0 bits=0001100 road=0000000 centroid=+0.5 colour=yes heading=+92.2deg travelled=6.107
+[t=  1.94] FOLLOW   ir= 197  196  196  100  100  196  195
+           front=0 bits=0001100 road=0000000 centroid=+0.5 colour=yes heading=+1.5deg travelled=0.675
            threshold=166 (black 99, floor 291)
-[t= 16.27] STOPPED  ir= 201  200  199  100  101  200  201
-           front=0 bits=0001100 road=0000000 centroid=+0.5 colour=yes heading=+92.2deg travelled=6.107
+[t=  2.45] FOLLOW   ir= 198  200  201  100  199  197  201
+           front=0 bits=0001000 road=0000000 centroid=+0.0 colour=yes heading=-0.9deg travelled=0.919
            threshold=166 (black 99, floor 291)
-[t= 16.78] STOPPED  ir= 199  199  198  100  100  200  200
-           front=0 bits=0001100 road=0000000 centroid=+0.5 colour=yes heading=+92.2deg travelled=6.107
-           threshold=166 (black 99, floor 291)
-[t= 17.30] STOPPED  ir= 200  200  201   99  100  201  200
-           front=0 bits=0001100 road=0000000 centroid=+0.5 colour=yes heading=+92.2deg travelled=6.107
-           threshold=166 (black 99, floor 291)
-[t= 17.81] STOPPED  ir= 199  201  199  100  100  199  200
-           front=0 bits=0001100 road=0000000 centroid=+0.5 colour=yes heading=+92.2deg travelled=6.107
-           threshold=166 (black 99, floor 291)
-[t= 18.32] STOPPED  ir= 200  199  200  100  100  201  200
-           front=0 bits=0001100 road=0000000 centroid=+0.5 colour=yes heading=+92.2deg travelled=6.107
-           threshold=166 (black 99, floor 291)
-[t= 18.83] STOPPED  ir= 199  201  199  100  100  199  199
-           front=0 bits=0001100 road=0000000 centroid=+0.5 colour=yes heading=+92.2deg travelled=6.107
-           threshold=166 (black 99, floor 291)
-[t= 19.34] STOPPED  ir= 200  200  201  100  100  201  200
-           front=0 bits=0001100 road=0000000 centroid=+0.5 colour=yes heading=+92.2deg travelled=6.107
-           threshold=166 (black 99, floor 291)
-[t= 19.86] STOPPED  ir= 200  200  201  100  100  199  200
-           front=0 bits=0001100 road=0000000 centroid=+0.5 colour=yes heading=+92.2deg travelled=6.107
-           threshold=166 (black 99, floor 291)
-[t= 20.37] STOPPED  ir= 202  199  200  100  100  199  200
-           front=0 bits=0001100 road=0000000 centroid=+0.5 colour=yes heading=+92.2deg travelled=6.107
-           threshold=166 (black 99, floor 291)
-[t= 20.88] STOPPED  ir= 200  200  200  100  100  201  200
-           front=0 bits=0001100 road=0000000 centroid=+0.5 colour=yes heading=+92.2deg travelled=6.107
-           threshold=166 (black 99, floor 291)
-[t= 21.39] STOPPED  ir= 198  200  200  100  100  200  201
-           front=0 bits=0001100 road=0000000 centroid=+0.5 colour=yes heading=+92.2deg travelled=6.107
-           threshold=166 (black 99, floor 291)
-[t= 21.90] STOPPED  ir= 201  201  201  100  100  201  201
-           front=0 bits=0001100 road=0000000 centroid=+0.5 colour=yes heading=+92.2deg travelled=6.107
-           threshold=166 (black 99, floor 291)
-[t= 22.42] STOPPED  ir= 200  201  199  101  100  202  200
-           front=0 bits=0001100 road=0000000 centroid=+0.5 colour=yes heading=+92.2deg travelled=6.107
-           threshold=166 (black 99, floor 291)
-[t= 22.93] STOPPED  ir= 200  199  199  100  100  200  199
-           front=0 bits=0001100 road=0000000 centroid=+0.5 colour=yes heading=+92.2deg travelled=6.107
-           threshold=166 (black 99, floor 291)
-[t= 23.44] STOPPED  ir= 199  201  200  100  101  199  200
-           front=0 bits=0001100 road=0000000 centroid=+0.5 colour=yes heading=+92.2deg travelled=6.107
-           threshold=166 (black 99, floor 291)
-[t= 23.95] STOPPED  ir= 199  199  199  100  101 
+[t=  2.96] FOLLOW   ir= 215  214  213   99  213  214  213
+           front=0 bits=0001000 road=0000000 centroid=+0.0 colour=yes heading=-0.5deg travelled=1.165
