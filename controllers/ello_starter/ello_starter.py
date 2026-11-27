@@ -57,6 +57,7 @@ def angle_wrap(angle):
 SENSOR_BEARING = [math.atan2(0.075 - 0.025 * i, 0.13) for i in range(7)]
 ROAD_CLUSTER_TOL = math.radians(25)
 MIN_ROAD_HITS = 3
+DEBUG_PERIOD_S = 0.5            # how often the sensor dump is printed
 
 
 def find_roads(bearings):
@@ -141,6 +142,10 @@ class LineFollower:
         self.scan_angle = 0.0
         self.road_bearings = []
         self.scan_start_heading = 0.0
+
+        # Debug output.
+        self.steps = 0
+        self.last_debug = -1e9
 
     # ---- motion and odometry -------------------------------------------
     def drive(self, left, right):
@@ -281,10 +286,28 @@ class LineFollower:
         # One or two roads: take the one closest to straight ahead.
         return min(roads, key=lambda a: abs(a))
 
+    def debug(self, values, bits, road_bits, c, on_colour, force=False):
+        """Print the sensor state so the run can be checked from the console."""
+        t = self.steps * self.step_ms / 1000.0
+        if not force and t - self.last_debug < DEBUG_PERIOD_S:
+            return
+        self.last_debug = t
+        print("[t=%6.2f] %-8s ir=%s" % (t, self.state, " ".join("%4d" % v for v in values)))
+        print("           bits=%s road=%s centroid=%s colour=%s heading=%+.1fdeg travelled=%.3f"
+              % ("".join("1" if b else "0" for b in bits),
+                 "".join("1" if b else "0" for b in road_bits),
+                 "none" if c is None else "%+.1f" % c,
+                 "yes" if on_colour else "no",
+                 math.degrees(self.heading), self.travelled))
+        print("           lo=%s hi=%s black_low=%s"
+              % (" ".join("%4d" % v for v in self.lo),
+                 " ".join("%4d" % v for v in self.hi), self.black_low))
+
     def run(self):
         self.drive(0.0, 0.0)
         samples = []
         while self.robot.step(self.step_ms) != -1:
+            self.steps += 1
             dth = self.update_odometry()
             values = self.read_ir()
 
@@ -294,6 +317,11 @@ class LineFollower:
                 if len(samples) == CALIBRATION_STEPS:
                     self.calibrate(samples)
                     print("calibrated: %s" % ("black-low" if self.black_low else "black-high"))
+                    print("raw IR at spawn (mean of %d steps): %s"
+                          % (CALIBRATION_STEPS, " ".join(
+                              "%4.0f" % (sum(s[i] for s in samples) / len(samples))
+                              for i in range(7))))
+                    self.debug(values, self.line_bits(values), [False] * 7, None, False, force=True)
                 continue
 
             bits = self.line_bits(values)
@@ -301,6 +329,7 @@ class LineFollower:
             # Road sightings: black line only, never over a coloured checkpoint pad.
             on_colour = self.coloured_below()
             road_bits = [False] * 7 if on_colour else self.road_bits_from(values, bits)
+            self.debug(values, bits, road_bits, c, on_colour)
 
             if self.state == self.FOLLOW:
                 # Junction candidate: an outermost sensor sees a black road.
@@ -332,6 +361,7 @@ class LineFollower:
                 if self.scan_angle >= TWO_PI:
                     self.drive(0.0, 0.0)
                     roads = find_roads(self.road_bearings)
+                    print("scan: %d road sightings" % len(self.road_bearings))
                     choice = self.choose_road(roads)
                     print("roads found: %d at %s degrees"
                           % (len(roads), [round(math.degrees(r)) for r in roads]))
