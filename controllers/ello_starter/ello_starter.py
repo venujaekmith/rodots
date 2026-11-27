@@ -1,3 +1,5 @@
+# following line really well no obstacle avoidance and no path selection and reverse.
+
 """eLLo line follower with junction scan.
 
 Follows the thin black line. When a junction is found, it moves onto the
