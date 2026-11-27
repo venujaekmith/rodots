@@ -1,5 +1,3 @@
-# following line really well no obstacle avoidance and no path selection and reverse.
-
 """eLLo line follower with junction scan.
 
 Follows the thin black line. When a junction is found, it moves onto the
@@ -16,6 +14,7 @@ encoders, with the Python standard library and Webots' controller module.
 import math
 import random
 import sys
+from collections import deque
 
 from controller import Camera, Robot
 
@@ -63,6 +62,10 @@ def angle_wrap(angle):
 SENSOR_BEARING = [math.atan2(0.075 - 0.025 * i, 0.13) for i in range(7)]
 ROAD_CLUSTER_TOL = math.radians(25)
 MIN_ROAD_HITS = 3
+JUNCTION_MATCH = 0.35           # m: a scan this close to a stored junction is the same junction
+OBSTACLE_TRIGGER = 520.0        # front lookup 1000 - 2000*d: 520 is 0.24 m from the sensor
+OBSTACLE_BACKUP = 0.10          # m to reverse after an obstacle
+BLOCK_TOL = math.radians(25)    # a road this close to a blocked bearing counts as blocked
 DEBUG_PERIOD_S = 0.5            # how often the sensor dump is printed
 
 
@@ -98,6 +101,8 @@ class LineFollower:
     APPROACH = "APPROACH"
     SCAN = "SCAN"
     TURN = "TURN"
+    BACKUP = "BACKUP"
+    STOPPED = "STOPPED"
 
     def __init__(self, robot):
         self.robot = robot
@@ -110,6 +115,17 @@ class LineFollower:
         self.right = robot.getDevice("right_wheel_motor")
         self.cam_left = robot.getDevice("checkpoint_color_left")
         self.cam_right = robot.getDevice("checkpoint_color_right")
+        self.front = robot.getDevice("front_obstacle_sensor")
+        if self.front is None:
+            raise RuntimeError("missing front_obstacle_sensor")
+        self.front.enable(self.step_ms)
+        self.front_votes = deque(maxlen=3)
+        self.front_value = 0.0
+        self.x = 0.0
+        self.y = 0.0
+        self.junctions = []             # {"x", "y", "blocked": [absolute road bearings]}
+        self.leaving_junction = None    # index of the junction the current road starts from
+        self.backup_goal = 0.0
         devices = (self.ir + [self.enc_left, self.enc_right, self.left, self.right,
                               self.cam_left, self.cam_right])
         if any(d is None for d in devices):
@@ -170,6 +186,9 @@ class LineFollower:
         self.last_enc = (left, right)
         ds = 0.5 * (dl + dr)
         dth = (dr - dl) / AXLE_LENGTH
+        mid = self.heading + 0.5 * dth
+        self.x += ds * math.cos(mid)
+        self.y += ds * math.sin(mid)
         self.heading = angle_wrap(self.heading + dth)
         self.travelled += ds
         return dth
@@ -260,6 +279,36 @@ class LineFollower:
         self.prev = 0.0
         self.integral = 0.0
 
+    def read_front(self):
+        """Median of the last three front readings, so one noisy step never triggers."""
+        value = float(self.front.getValue())
+        if not math.isfinite(value):
+            value = 0.0
+        self.front_votes.append(value)
+        ordered = sorted(self.front_votes)
+        return ordered[len(ordered) // 2]
+
+    def junction_index(self):
+        """Index of the junction at the current position, creating it if new."""
+        for i, j in enumerate(self.junctions):
+            if math.hypot(j["x"] - self.x, j["y"] - self.y) <= JUNCTION_MATCH:
+                return i
+        self.junctions.append({"x": self.x, "y": self.y, "blocked": []})
+        return len(self.junctions) - 1
+
+    def start_obstacle_escape(self):
+        """An obstacle is ahead on this road: stop, reverse, and block the road at
+        the junction it starts from, so every later visit avoids it."""
+        self.drive(0.0, 0.0)
+        print("obstacle ahead (front %.0f): reversing and blocking this road"
+              % self.front_value)
+        if self.leaving_junction is not None:
+            self.junctions[self.leaving_junction]["blocked"].append(self.travel_heading)
+        self.backup_goal = self.travelled - OBSTACLE_BACKUP
+        # Turn to face back along the line, toward the junction.
+        self.target_heading = angle_wrap(self.travel_heading + math.pi)
+        self.state = self.BACKUP
+
     def start_scan(self):
         self.state = self.SCAN
         self.scan_angle = 0.0
@@ -282,8 +331,8 @@ class LineFollower:
             return
         self.last_debug = t
         print("[t=%6.2f] %-8s ir=%s" % (t, self.state, " ".join("%4d" % v for v in values)))
-        print("           bits=%s road=%s centroid=%s colour=%s heading=%+.1fdeg travelled=%.3f"
-              % ("".join("1" if b else "0" for b in bits),
+        print("           front=%.0f bits=%s road=%s centroid=%s colour=%s heading=%+.1fdeg travelled=%.3f"
+              % (self.front_value, "".join("1" if b else "0" for b in bits),
                  "".join("1" if b else "0" for b in road_bits),
                  "none" if c is None else "%+.1f" % c,
                  "yes" if on_colour else "no",
@@ -318,9 +367,13 @@ class LineFollower:
             # Road sightings: black line only, never over a coloured checkpoint pad.
             on_colour = self.coloured_below()
             road_bits = [False] * 7 if on_colour else bits
+            self.front_value = self.read_front()
             self.debug(values, bits, road_bits, c, on_colour)
 
             if self.state == self.FOLLOW:
+                if self.front_value >= OBSTACLE_TRIGGER:
+                    self.start_obstacle_escape()
+                    continue
                 # Junction candidate: an outermost sensor sees a black road.
                 if road_bits[0] or road_bits[6]:
                     self.outer_votes += 1
@@ -351,10 +404,22 @@ class LineFollower:
                     self.drive(0.0, 0.0)
                     roads = find_roads(self.road_bearings)
                     print("scan: %d road sightings" % len(self.road_bearings))
-                    choice = self.choose_road(roads)
-                    print("roads found: %d at %s degrees"
-                          % (len(roads), [round(math.degrees(r)) for r in roads]))
-                    if choice is None:
+                    here = self.junction_index()
+                    blocked_rel = [angle_wrap(b - self.scan_start_heading)
+                                   for b in self.junctions[here]["blocked"]]
+                    open_roads = [r for r in roads
+                                  if all(abs(angle_wrap(r - b)) > BLOCK_TOL
+                                         for b in blocked_rel)]
+                    choice = self.choose_road(open_roads)
+                    print("roads found: %d at %s degrees; open: %d"
+                          % (len(roads), [round(math.degrees(r)) for r in roads],
+                             len(open_roads)))
+                    if choice is not None:
+                        self.leaving_junction = here
+                    if choice is None and roads and not open_roads:
+                        print("every road here is blocked; stopping")
+                        self.state = self.STOPPED
+                    elif choice is None:
                         print("no road found; resuming line search")
                         self.start_turn_to(0.0)
                     else:
@@ -362,6 +427,13 @@ class LineFollower:
                         self.start_turn_to(choice)
                 else:
                     self.drive(-SCAN_SPEED, SCAN_SPEED)
+
+            elif self.state == self.BACKUP:
+                if self.travelled <= self.backup_goal:
+                    self.drive(0.0, 0.0)
+                    self.state = self.TURN
+                else:
+                    self.drive(-APPROACH_SPEED, -APPROACH_SPEED)
 
             elif self.state == self.TURN:
                 error = angle_wrap(self.target_heading - self.heading)
@@ -376,6 +448,9 @@ class LineFollower:
                     mag = clamp(TURN_GAIN * abs(error), TURN_MIN, TURN_MAX)
                     w = mag if error > 0 else -mag
                     self.drive(-w, w)
+
+            else:
+                self.drive(0.0, 0.0)
 
     def start_turn_to(self, relative):
         # The scan started at the heading the robot had at the junction.
