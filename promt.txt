@@ -1,0 +1,84 @@
+### Role & Objective
+Act as an expert autonomous robotics engineer specializing in Webots R2025a, embedded control systems, and graph-based path planning. Write a complete, production-grade, offline Python 3 controller for the virtual robot **eLLo** in **REIDBOTS: Mission K-391**[cite: 2, 5, 10].
+
+Your algorithm must combine **adaptive PID line following**, **zero-contact obstacle avoidance**, and an **explicit DFS Backtracking Decision Stack paired with a Spatial-Hashed Topological Graph and A\* Shortest-Path Planner** so the robot records every junction decision, undoes failed branches immediately upon hitting a rock or dead end, returns to the parent junction to take an alternate branch, avoids infinite loops in cyclic mazes, and sprints directly to previously discovered out-of-order checkpoints[cite: 3, 4, 6, 7, 8].
+
+---
+
+### 1. Standardized Webots R2025a Hardware & Environment Contract
+Do not assume any modifications to the robot model, sensor placements, actuators, physics, or world geometry[cite: 5]. Use only Python standard libraries (`collections`, `heapq`, `math`, `sys`) and Webots `controller` classes (`Robot`, `Camera`) with zero internet or external dependencies[cite: 5, 10].
+
+Bind to these exact Webots device names using `step_ms = int(robot.getBasicTimeStep())`:
+* **Wheel Motors (`setPosition(float('inf'))`):** `left_wheel_motor`, `right_wheel_motor`[cite: 5]
+* **Wheel Encoders (differential odometry & edge distance):** `left_wheel_encoder`, `right_wheel_encoder`[cite: 5]
+* **7 Downward IR Line Sensors (left `0` to right `6`):** `ir_line_0` through `ir_line_6`[cite: 5]
+* **2 Downward RGB Cameras (floor beside line):** `checkpoint_color_left`, `checkpoint_color_right`[cite: 5]
+* **Front Distance Sensor (rock detection):** `front_obstacle_sensor`[cite: 5]
+* **Status RGB LED:** `rgb_status_led`[cite: 5]
+
+---
+
+### 2. High-Efficiency Data Structures & Algorithmic Engine
+Implement the navigation brain using these five core data structures and algorithms:
+
+1. **Explicit DFS Decision Stack (`list` as LIFO Stack) — Decision Recording & Undo:**
+   * Every time `eLLo` commits to a branch at a junction, push a decision frame onto `decision_stack`:
+     `DecisionFrame(node_id, entry_dir, chosen_exit_dir, edge_distance_m)`
+   * **Undo & Backtrack Protocol:** When a branch fails (either `front_obstacle_sensor` detects a rock ahead or the black guide line terminates in a dead end), execute an immediate rollback:
+     1. Stop motors safely before rock contact[cite: 6].
+     2. Pop the top `DecisionFrame` from `decision_stack`.
+     3. Mark `graph[node_id].exits[chosen_exit_dir] = BLOCKED` in $O(1)$ time.
+     4. Execute a closed-loop $180^\circ$ pivot turn onto the reverse cardinal heading, reacquire the black line, and follow it back to `node_id`[cite: 6].
+     5. At `node_id`, select the next `UNEXPLORED` exit (prioritizing branches aligned toward the general maze frontier) and push the new decision frame onto `decision_stack`.
+
+2. **Spatial-Hashed Topological Graph (`dict` + Grid Bucketing) — $O(1)$ Loop & Cycle Prevention:**
+   * Because K-391 layouts contain cyclic loops, pure DFS without cycle detection will loop infinitely.
+   * Represent the maze as an adjacency hash map: `nodes[node_id] = Node(x, y, exits={dir: UNEXPLORED | BLOCKED | (neighbor_id, edge_cost)})`.
+   * Index nodes into a spatial grid hash (`grid_buckets[(int(x // cell_size), int(y // cell_size))]`) and check the $3 \times 3$ neighborhood within `NODE_MERGE_RADIUS` for $O(1)$ amortized node lookup.
+   * When arriving at a junction whose coordinates match an existing `node_id`, link the bidirectional edge with its measured encoder `edge_cost` (in meters), mark the arrival direction as explored, and avoid re-traversing already explored loops unless required for transit.
+
+3. **A\* / Dijkstra Weighted Shortest-Path Planner (`heapq` Min-Heap) — Checkpoint Sprinting:**
+   * Maintain a hash map `checkpoint_memory[color] = node_id` for any checkpoint encountered during exploration[cite: 6, 7].
+   * Whenever a checkpoint is confirmed and the target advances (e.g., `GREEN` $\rightarrow$ `RED`), immediately check `checkpoint_memory[new_target]`:
+     * **If already discovered:** Run **A\* search** (using `heapq` with Euclidean distance heuristic and actual recorded `edge_cost` weights) from the current `node_id` to `checkpoint_memory[new_target]`, overriding exploration to sprint straight to the target along the shortest known path[cite: 6, 7].
+     * **If not yet discovered:** Use **Dijkstra / Nearest-Frontier search** to find the minimum-distance path to the closest junction that still has an `UNEXPLORED` exit.
+
+4. **O(1) Ring-Buffer Sensor Filters (`collections.deque(maxlen=N)`):**
+   * Filter `front_obstacle_sensor` with a 3-sample median buffer so single-step sensor noise never triggers false obstacle reversals.
+   * Filter downward camera RGB readings with a 3-frame majority-vote buffer so transient color noise never causes false checkpoint triggers or missed pads.
+
+5. **Landmark Odometry Drift Correction (Pose Snapping):**
+   * Track $(x, y, \theta)$ continuously from `left_wheel_encoder` and `right_wheel_encoder`[cite: 5].
+   * Snap $\theta$ gently toward the nearest cardinal axis ($0^\circ, 90^\circ, 180^\circ, 270^\circ$) during long straight line-following segments, and blend $(x, y)$ toward stored node coordinates upon revisiting a mapped junction to eliminate long-run encoder drift.
+
+---
+
+### 3. Low-Level Motion, Line Tracking & Recovery Control
+* **Auto-Calibration on Startup:** Dynamically read `getMaxVelocity()` from the motors, infer `front_obstacle_sensor` scale (meters vs. raw proximity), and learn IR floor-vs-black-line polarity/contrast dynamically so the controller adapts automatically across unseen evaluation worlds[cite: 6].
+* **Curvature-Adaptive Weighted-Centroid PID:** Compute continuous line error across all 7 IR sensors (`weights = [-3, -2, -1, 0, +1, +2, +3]`). Modulate forward speed smoothly between `CRUISE_SPEED` (on straightaways, maximizing the time-efficiency score $5 \times (1 - t/1200)$) and `MIN_CURVE_SPEED` (on sharp $90^\circ$ bends) so `eLLo` hugs ~4 cm curves without overshooting[cite: 4, 8].
+* **Curve vs. Intersection Classification:** Do not create graph nodes on simple $90^\circ$ bends. Only trigger junction logic when wide outer IR sensors activate (`ir_line_0..2` or `ir_line_4..6`), step forward ~5 cm to check whether the straight path continues, and create a junction node only when $\ge 2$ outgoing branches exist (T-junction or crossroad)[cite: 3, 4, 6].
+* **Bounded Line-Loss Recovery:** If all 7 IR sensors lose the line temporarily, execute a bounded sweep toward `last_seen_side`. If the line is not reacquired within a strict step limit and no junction is present, treat it as a dead end or trigger a safe emergency stop rather than spinning indefinitely or driving off-track[cite: 6, 7].
+
+---
+
+### 4. Strict Mission Rules & Edge-Case Constraints
+1. **Deploy State (`START` Zone):** Initialize `target = GREEN` and `rgb_status_led` to `0x00FF00`[cite: 3]. Exclude the green `START` pad near spawn from triggering the `GREEN` checkpoint[cite: 3, 4].
+2. **Strict Checkpoint Sequence & LED Sync:**
+   * Confirm checkpoints exclusively in the order: **`GREEN` $\rightarrow$ `RED` $\rightarrow$ `BLUE` $\rightarrow$ `YELLOW`**[cite: 3, 7].
+   * Upon confirming the active target, update `rgb_status_led` immediately (`GREEN=0x00FF00`, `RED=0xFF0000`, `BLUE=0x0000FF`, `YELLOW=0xFFFF00`)[cite: 3, 7].
+   * Out-of-order checkpoints must **not** advance progress or alter the LED, but must be saved in `checkpoint_memory`.
+3. **Pad Cross-Line & Duplicate Protection:**
+   * Suppress duplicate detections while `eLLo` remains on the same $0.72 \times 0.72\text{ m}$ square.
+   * Suppress junction-turn triggers while cameras detect a colored pad so the intersecting black cross-lines inside each square never cause false turns or false dead-end reversals[cite: 4, 7].
+4. **Zero-Contact Rock Avoidance:** Stop well before touching any rock (`front_obstacle_sensor` threshold with safety margin) and execute the exact undo-and-backtrack sequence[cite: 5, 6, 8].
+5. **Final Parking (`YELLOW`):** Upon confirming `YELLOW` as the active target, drive forward via encoder odometry until the **entire robot footprint** (front bumper through rear caster) sits inside the $0.72 \times 0.72\text{ m}$ `YELLOW` square, command `0.0` velocity to both motors, and print `MISSION COMPLETE`[cite: 3, 4, 5, 7].
+6. **Generalization:** Zero hardcoded coordinates, maps, or world-specific branches; the exact same code must solve the public arena and all three private evaluation layouts within the 1,200-second limit[cite: 6, 8, 9].
+
+---
+
+### 5. Deliverable Structure
+Provide clean, well-documented, modular Python 3 code organized into:
+1. `RingBufferFilter` & `SensorSuite` (adaptive IR normalization, RGB pad classifier, median obstacle detector)
+2. `TopologicalGraph` (spatial-hashed nodes, DFS `decision_stack`, A\* & Nearest-Frontier planners)
+3. `MotionController` (differential odometry with drift snapping, curvature-adaptive PID, closed-loop $90^\circ/180^\circ$ line-snapping turns)
+4. `ElloMissionController` (main control loop integrating safety, checkpoint state machine, junction decision-making, and throttled telemetry logs)
