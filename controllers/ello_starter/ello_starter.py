@@ -82,7 +82,35 @@ def dir_of(angle):
     """Quantise an absolute bearing to a cardinal direction index 0..3."""
     return int(round(angle / HALF_PI)) % 4
 
-DEBUG_PERIOD_S = 0.5            # how often the sensor dump is printed
+DEBUG_PERIOD_S = 0.5
+
+# Checkpoints (the pads). The order is fixed by the mission.
+CHECKPOINTS = ("GREEN", "RED", "BLUE", "YELLOW")
+LED_RGB = {"GREEN": 0x00FF00, "RED": 0xFF0000, "BLUE": 0x0000FF, "YELLOW": 0xFFFF00, None: 0}
+PAD_CONFIRM_STEPS = 3           # consecutive camera readings before a colour counts
+START_PAD_EXCLUSION = 0.70      # m: the GREEN start pad near the start is not a checkpoint
+BLINK_STEPS = 12                # steps per LED on/off half-cycle when a checkpoint is confirmed
+BLINK_COUNT = 3                 # number of on/off blinks on confirmation
+PARK_DISTANCE = 0.35            # m driven onto YELLOW after it is confirmed, then stop
+
+
+def classify_pad(r, g, b):
+    """Name of the checkpoint colour for a mean RGB reading, or None (the same
+    colour rules as the starter controller)."""
+    top = max(r, g, b)
+    low = min(r, g, b)
+    if top < 45 or (top - low) / top <= 0.20:
+        return None
+    rn, gn, bn = r / top, g / top, b / top
+    if rn > 0.78 and gn > 0.55 and bn < 0.48 and top >= 125 and abs(rn - gn) < 0.42:
+        return "YELLOW"
+    if rn > 0.72 and top >= 150 and rn > gn * 1.18 and rn > bn * 1.25:
+        return "RED"
+    if gn > 0.68 and top >= 125 and gn > rn * 1.12 and gn > bn * 1.12:
+        return "GREEN"
+    if bn > 0.62 and top >= 125 and bn > rn * 1.08 and bn > gn * 1.08:
+        return "BLUE"
+    return None            # how often the sensor dump is printed
 
 
 def find_roads(bearings):
@@ -118,6 +146,7 @@ class LineFollower:
     SCAN = "SCAN"
     TURN = "TURN"
     BACKUP = "BACKUP"
+    FINISH = "FINISH"
     STOPPED = "STOPPED"
 
     def __init__(self, robot):
@@ -151,6 +180,15 @@ class LineFollower:
         self.pending = (0, 0)           # (junction, direction) of the road being driven
         self.search_here = False        # after an obstacle: scan 360 at this spot for an open road
         self.search_failures = 0        # searches in a row that found no unexplored road
+        # Checkpoints.
+        self.target_index = 0           # index into CHECKPOINTS: the colour being sought
+        self.pads = {}                  # colour -> (junction, direction) of the road it lies on
+        self.pad_votes = deque(maxlen=PAD_CONFIRM_STEPS)
+        self.pad_last = None            # colour confirmed on the previous step
+        self.blink_left = 0             # LED toggles still to do
+        self.blink_timer = 0            # steps until the next LED toggle
+        self.blink_colour = None
+        self.finish_at = None           # travelled distance at which the robot stops on YELLOW
         self.forced_scan = False        # True while scanning at a non-junction spot
         self.backup_goal = 0.0
         self.arrival_heading = 0.0      # travel heading when the junction was reached
@@ -166,6 +204,9 @@ class LineFollower:
         self.enc_right.enable(self.step_ms)
         self.cam_left.enable(self.step_ms)
         self.cam_right.enable(self.step_ms)
+        self.led = robot.getDevice("rgb_status_led")
+        if self.led is None:
+            raise RuntimeError("missing rgb_status_led")
         self.left.setPosition(float("inf"))
         self.right.setPosition(float("inf"))
         limits = [m for m in (self.left.getMaxVelocity(), self.right.getMaxVelocity()) if m > 0]
@@ -239,9 +280,9 @@ class LineFollower:
         """A sensor sees the black line when it reads at or below the threshold."""
         return [v <= self.threshold for v in values]
 
-    def coloured_below(self):
-        """True when a downward camera sees a saturated colour, i.e. a checkpoint
-        pad. Roads are black, so IR readings over a pad are not road sightings."""
+    def pad_colour(self):
+        """Name of the checkpoint colour under a downward camera, or None.
+        Roads are black; a saturated colour means a checkpoint pad."""
         for camera in (self.cam_left, self.cam_right):
             image = camera.getImage()
             if image is None:
@@ -257,11 +298,10 @@ class LineFollower:
                     count += 1
             if count == 0:
                 continue
-            r, g, b = r / count, g / count, b / count
-            top = max(r, g, b)
-            if top >= 45 and (top - min(r, g, b)) / top > 0.20:
-                return True
-        return False
+            name = classify_pad(r / count, g / count, b / count)
+            if name is not None:
+                return name
+        return None
 
     def centroid(self, bits):
         count = sum(bits)
@@ -435,7 +475,45 @@ class LineFollower:
                     queue.append(r["to"])
         return None
 
+    def route_to_junction(self, here, goal, avoid):
+        """First road of the shortest known route to junction `goal`, not starting
+        with a road in `avoid`. Returns the direction or None."""
+        parent = {here: None}
+        queue = deque([here])
+        while queue:
+            j = queue.popleft()
+            if j == goal and j != here:
+                node = j
+                while parent[node][0] != here:
+                    node = parent[node][0]
+                return parent[node][1]
+            for d, r in self.junctions[j]["roads"].items():
+                if j == here and d in avoid:
+                    continue
+                if r["state"] == LINK and r["to"] not in parent:
+                    parent[r["to"]] = (j, d)
+                    queue.append(r["to"])
+        return None
+
+    def target_colour(self):
+        return CHECKPOINTS[self.target_index] if self.target_index < len(CHECKPOINTS) else None
+
     def choose_next(self, here, scanned, avoid):
+        """Checkpoint first: while the colour being sought has been seen, go to the
+        road it lies on. Otherwise the choice is made as before."""
+        colour = self.target_colour()
+        if colour is not None and colour in self.pads:
+            pj, pd = self.pads[colour]
+            roads = self.junctions[here]["roads"]
+            if pj == here and pd not in avoid and pd in scanned:
+                return pd, "the road with the %s checkpoint" % colour
+            if pj != here:
+                first = self.route_to_junction(here, pj, avoid)
+                if first is not None:
+                    return first, "route to the %s checkpoint at junction %d" % (colour, pj)
+        return self.choose_untried(here, scanned, avoid)
+
+    def choose_untried(self, here, scanned, avoid):
         """Pick the next road. Never a road in `avoid` (the road behind the robot
         and the entry road), never a road already taken, linked, dead-ended or
         blocked. An untried road here is chosen at random. Otherwise the robot
@@ -464,6 +542,51 @@ class LineFollower:
                 return first, "retracing the way it came"
         return None
 
+    def on_checkpoint(self, colour):
+        """A pad colour was confirmed on the road being driven."""
+        if colour == "GREEN" and math.hypot(self.x, self.y) < START_PAD_EXCLUSION:
+            print("GREEN start pad near the start: not a checkpoint")
+            return
+        if self.pending is not None and colour not in self.pads:
+            self.pads[colour] = self.pending
+            j, d = self.pending
+            print("memory: %s checkpoint lies on junction %d road %s" % (colour, j, DIR_NAME[d]))
+        expected = self.target_colour()
+        if colour == expected:
+            self.target_index += 1
+            print("CHECKPOINT %s reached" % colour)
+            self.start_blink(colour)
+            if colour == "YELLOW":
+                self.finish_at = self.travelled + PARK_DISTANCE
+                self.state = self.FINISH
+                print("YELLOW reached: driving %.2f m onto it, then stopping" % PARK_DISTANCE)
+            else:
+                print("next checkpoint: %s" % self.target_colour())
+                self.set_led(self.target_colour())
+        else:
+            print("out-of-order checkpoint %s saved to memory; still looking for %s"
+                  % (colour, expected))
+
+    def set_led(self, colour):
+        self.led.set(LED_RGB.get(colour, 0))
+
+    def start_blink(self, colour):
+        self.blink_colour = colour
+        self.blink_left = BLINK_COUNT * 2
+        self.blink_timer = 0
+
+    def update_led(self):
+        """Blink the confirmed colour, then show the colour now being sought."""
+        if self.blink_left > 0:
+            self.blink_timer -= 1
+            if self.blink_timer <= 0:
+                on = self.blink_left % 2 == 0
+                self.set_led(self.blink_colour if on else None)
+                self.blink_left -= 1
+                self.blink_timer = BLINK_STEPS
+            return
+        self.set_led(self.target_colour())
+
     def start_scan(self):
         self.state = self.SCAN
         self.scan_angle = 0.0
@@ -488,6 +611,7 @@ class LineFollower:
 
     def run(self):
         self.drive(0.0, 0.0)
+        self.set_led(self.target_colour())
         samples = []
         while self.robot.step(self.step_ms) != -1:
             self.steps += 1
@@ -511,7 +635,20 @@ class LineFollower:
             bits = self.line_bits(values)
             c = self.centroid(bits)
             # Road sightings: black line only, never over a coloured checkpoint pad.
-            on_colour = self.coloured_below()
+            raw_pad = self.pad_colour()
+            on_colour = raw_pad is not None
+            self.pad_votes.append(raw_pad)
+            confirmed_pad = None
+            if (len(self.pad_votes) == PAD_CONFIRM_STEPS and self.pad_votes[0] is not None
+                    and all(v == self.pad_votes[0] for v in self.pad_votes)):
+                confirmed_pad = self.pad_votes[0]
+            if confirmed_pad is not None and confirmed_pad != self.pad_last:
+                self.on_checkpoint(confirmed_pad)
+            if confirmed_pad is not None:
+                self.pad_last = confirmed_pad
+            elif raw_pad is None:
+                self.pad_last = None
+            self.update_led()
             road_bits = [False] * 7 if on_colour else bits
             self.front_value = self.read_front()
             self.debug(values, bits, road_bits, c, on_colour)
@@ -630,6 +767,18 @@ class LineFollower:
                         self.start_turn_to(d * HALF_PI - self.scan_start_heading)
                 else:
                     self.drive(-SCAN_SPEED, SCAN_SPEED)
+
+            elif self.state == self.FINISH:
+                if self.front_value >= OBSTACLE_TRIGGER:
+                    self.drive(0.0, 0.0)
+                    print("obstacle while on YELLOW; stopping")
+                    self.state = self.STOPPED
+                elif self.travelled >= self.finish_at:
+                    self.drive(0.0, 0.0)
+                    print("MISSION COMPLETE")
+                    self.state = self.STOPPED
+                else:
+                    self.follow(bits, c)
 
             elif self.state == self.BACKUP:
                 if self.travelled <= self.backup_goal:
