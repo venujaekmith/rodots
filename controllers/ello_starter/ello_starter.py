@@ -15,7 +15,7 @@ import math
 import random
 import sys
 
-from controller import Robot
+from controller import Camera, Robot
 
 
 IR_NAMES = ["ir_line_%d" % i for i in range(7)]
@@ -38,7 +38,7 @@ CALIBRATION_STEPS = 25
 LOST_LIMIT = 12
 JUNCTION_CONFIRM_STEPS = 5
 JUNCTION_CENTER_OFFSET = 0.11   # m from the first outer-sensor hit to the crossing centre
-MIN_ROAD_SAMPLES = 5            # a real road spans about 13 scan samples; shorter sightings are noise
+BLACK_FRACTION = 0.25           # a road reading must be within this fraction of black
 
 
 def clamp(value, low, high):
@@ -49,37 +49,41 @@ def angle_wrap(angle):
     return math.atan2(math.sin(angle), math.cos(angle))
 
 
-def find_roads(samples):
-    """samples: list of (angle_from_scan_start, line_seen). Returns road centre
-    angles in radians, wrapped to (-pi, pi]. A road that crosses the start of
-    the scan is joined into one road."""
-    intervals = []
-    current = None
-    for angle, seen in samples:
-        if seen:
-            if current is None:
-                current = [angle, angle, 1]
-            else:
-                current[1] = angle
-                current[2] += 1
-        elif current is not None:
-            intervals.append(current)
-            current = None
-    if current is not None:
-        intervals.append(current)
+# Each IR sensor sits at a fixed angle from the axle: sensor i is at lateral
+# offset 0.075 - 0.025 i, 0.13 m ahead. When a sensor sees a road, the road's
+# direction from the crossing is the heading plus that angle, whatever the
+# heading is. Every sensor that sees the same road therefore gives the same
+# bearing, however the sightings are split across the sweep.
+SENSOR_BEARING = [math.atan2(0.075 - 0.025 * i, 0.13) for i in range(7)]
+ROAD_CLUSTER_TOL = math.radians(25)
+MIN_ROAD_HITS = 3
 
-    intervals = [iv for iv in intervals if iv[2] >= MIN_ROAD_SAMPLES]
 
-    # The first and last samples are adjacent on the circle, so a road that
-    # spans the start of the scan appears as two pieces. Join them.
-    if (len(intervals) >= 2 and samples and samples[0][1] and samples[-1][1]
-            and intervals[0][0] <= samples[0][0] + 1e-6
-            and intervals[-1][1] >= samples[-1][0] - 1e-6):
-        first, last = intervals[0], intervals[-1]
-        joined = [last[0], first[1] + TWO_PI, first[2] + last[2]]
-        intervals = [joined] + intervals[1:-1]
-
-    return [angle_wrap((start + end) / 2.0) for start, end, _ in intervals]
+def find_roads(bearings):
+    """bearings: road bearings (radians, any range) from the scan. Groups them
+    into roads and returns each road's circular-mean bearing in (-pi, pi]."""
+    if not bearings:
+        return []
+    ordered = sorted(b % TWO_PI for b in bearings)
+    clusters = [[ordered[0]]]
+    for b in ordered[1:]:
+        if b - clusters[-1][-1] <= ROAD_CLUSTER_TOL:
+            clusters[-1].append(b)
+        else:
+            clusters.append([b])
+    # The last and first clusters may be one road that wraps past 0 / 2 pi.
+    if (len(clusters) >= 2
+            and ordered[0] + TWO_PI - clusters[-1][-1] <= ROAD_CLUSTER_TOL):
+        clusters[0] = clusters[-1] + clusters[0]
+        clusters.pop()
+    roads = []
+    for cluster in clusters:
+        if len(cluster) < MIN_ROAD_HITS:
+            continue
+        s = sum(math.sin(b) for b in cluster)
+        c = sum(math.cos(b) for b in cluster)
+        roads.append(angle_wrap(math.atan2(s, c)))
+    return roads
 
 
 class LineFollower:
@@ -97,7 +101,10 @@ class LineFollower:
         self.enc_right = robot.getDevice("right_wheel_encoder")
         self.left = robot.getDevice("left_wheel_motor")
         self.right = robot.getDevice("right_wheel_motor")
-        devices = self.ir + [self.enc_left, self.enc_right, self.left, self.right]
+        self.cam_left = robot.getDevice("checkpoint_color_left")
+        self.cam_right = robot.getDevice("checkpoint_color_right")
+        devices = (self.ir + [self.enc_left, self.enc_right, self.left, self.right,
+                              self.cam_left, self.cam_right])
         if any(d is None for d in devices):
             raise RuntimeError("missing line sensor, encoder or wheel motor")
 
@@ -105,6 +112,8 @@ class LineFollower:
             s.enable(self.step_ms)
         self.enc_left.enable(self.step_ms)
         self.enc_right.enable(self.step_ms)
+        self.cam_left.enable(self.step_ms)
+        self.cam_right.enable(self.step_ms)
         self.left.setPosition(float("inf"))
         self.right.setPosition(float("inf"))
         limits = [m for m in (self.left.getMaxVelocity(), self.right.getMaxVelocity()) if m > 0]
@@ -130,7 +139,7 @@ class LineFollower:
         self.state_start = 0.0
         self.target_heading = 0.0
         self.scan_angle = 0.0
-        self.scan_samples = []
+        self.road_bearings = []
         self.scan_start_heading = 0.0
 
     # ---- motion and odometry -------------------------------------------
@@ -167,6 +176,22 @@ class LineFollower:
         self.lo = [low] * 7
         self.hi = [high] * 7
 
+    def road_bits_from(self, values, bits):
+        """Stricter than the line bits: a sensor counts as road only when its
+        reading is close to the calibrated black level. Mid-grey surfaces (for
+        example a coloured pad that reads somewhat dark) fail this test."""
+        out = []
+        for i, v in enumerate(values):
+            span = self.hi[i] - self.lo[i]
+            if span < 15.0 or not bits[i]:
+                out.append(False)
+                continue
+            if self.black_low:
+                out.append(v <= self.lo[i] + BLACK_FRACTION * span)
+            else:
+                out.append(v >= self.hi[i] - BLACK_FRACTION * span)
+        return out
+
     def line_bits(self, values):
         bits = []
         for i, v in enumerate(values):
@@ -178,6 +203,30 @@ class LineFollower:
             mid = 0.5 * (self.lo[i] + self.hi[i])
             bits.append(v <= mid if self.black_low else v >= mid)
         return bits
+
+    def coloured_below(self):
+        """True when a downward camera sees a saturated colour, i.e. a checkpoint
+        pad. Roads are black, so IR readings over a pad are not road sightings."""
+        for camera in (self.cam_left, self.cam_right):
+            image = camera.getImage()
+            if image is None:
+                continue
+            width, height = camera.getWidth(), camera.getHeight()
+            r = g = b = 0.0
+            count = 0
+            for y in range(height // 2 - height // 8, height // 2 + height // 8):
+                for x in range(width // 2 - width // 8, width // 2 + width // 8):
+                    r += Camera.imageGetRed(image, width, x, y)
+                    g += Camera.imageGetGreen(image, width, x, y)
+                    b += Camera.imageGetBlue(image, width, x, y)
+                    count += 1
+            if count == 0:
+                continue
+            r, g, b = r / count, g / count, b / count
+            top = max(r, g, b)
+            if top >= 45 and (top - min(r, g, b)) / top > 0.20:
+                return True
+        return False
 
     def centroid(self, bits):
         count = sum(bits)
@@ -220,7 +269,7 @@ class LineFollower:
     def start_scan(self):
         self.state = self.SCAN
         self.scan_angle = 0.0
-        self.scan_samples = []
+        self.road_bearings = []
         self.scan_start_heading = self.heading
 
     def choose_road(self, roads):
@@ -249,10 +298,13 @@ class LineFollower:
 
             bits = self.line_bits(values)
             c = self.centroid(bits)
+            # Road sightings: black line only, never over a coloured checkpoint pad.
+            on_colour = self.coloured_below()
+            road_bits = [False] * 7 if on_colour else self.road_bits_from(values, bits)
 
             if self.state == self.FOLLOW:
-                # Junction candidate: an outermost sensor sees the line.
-                if bits[0] or bits[6]:
+                # Junction candidate: an outermost sensor sees a black road.
+                if road_bits[0] or road_bits[6]:
                     self.outer_votes += 1
                 else:
                     self.outer_votes = 0
@@ -273,10 +325,13 @@ class LineFollower:
 
             elif self.state == self.SCAN:
                 self.scan_angle += dth
-                self.scan_samples.append((self.scan_angle, any(bits)))
+                for i, is_road in enumerate(road_bits):
+                    if is_road:
+                        self.road_bearings.append(
+                            self.heading + SENSOR_BEARING[i] - self.scan_start_heading)
                 if self.scan_angle >= TWO_PI:
                     self.drive(0.0, 0.0)
-                    roads = find_roads(self.scan_samples)
+                    roads = find_roads(self.road_bearings)
                     choice = self.choose_road(roads)
                     print("roads found: %d at %s degrees"
                           % (len(roads), [round(math.degrees(r)) for r in roads]))
