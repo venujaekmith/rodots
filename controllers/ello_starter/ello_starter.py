@@ -1,3 +1,4 @@
+
 """eLLo line follower with junction scan.
 
 Follows the thin black line. When a junction is found, it moves onto the
@@ -62,7 +63,8 @@ def angle_wrap(angle):
 # bearing, however the sightings are split across the sweep.
 SENSOR_BEARING = [math.atan2(0.075 - 0.025 * i, 0.13) for i in range(7)]
 ROAD_CLUSTER_TOL = math.radians(25)
-MIN_ROAD_HITS = 3
+MIN_ROAD_HITS = 5               # sightings needed before a bearing counts as a road
+MAX_LOST_EVENTS = 3             # line losses without reaching a junction before stopping
 JUNCTION_MATCH = 0.35           # m: a scan this close to a stored junction is the same junction
 OBSTACLE_TRIGGER = 520.0        # front lookup 1000 - 2000*d: 520 is 0.24 m from the sensor
 OBSTACLE_BACKUP = 0.10          # m to reverse after an obstacle
@@ -167,6 +169,7 @@ class LineFollower:
         self.prev = 0.0
         self.last_side = 0.0
         self.travel_heading = 0.0       # heading when the line was last centred
+        self.lost_events = 0            # line losses since the last junction
         self.lost = 0
         self.outer_votes = 0
 
@@ -264,6 +267,13 @@ class LineFollower:
                 side = self.last_side or 1.0
                 self.drive(SEARCH_SPEED * side, -SEARCH_SPEED * side)
             else:
+                self.lost_events += 1
+                if self.lost_events >= MAX_LOST_EVENTS:
+                    print("lost the track %d times without reaching a junction; stopping"
+                          % self.lost_events)
+                    self.drive(0.0, 0.0)
+                    self.state = self.STOPPED
+                    return
                 print("line not found after search; turning around")
                 self.close_pending(DEAD_END)
                 self.drive(0.0, 0.0)
@@ -468,8 +478,11 @@ class LineFollower:
 
             elif self.state == self.SCAN:
                 self.scan_angle += dth
+                # Only a thin line counts: a dense black patch (several sensors dark at
+                # once) is not a road and would give a false bearing.
+                thin_line = 1 <= sum(road_bits) <= MAX_LINE_SENSORS
                 for i, is_road in enumerate(road_bits):
-                    if is_road:
+                    if is_road and thin_line:
                         self.road_bearings.append(
                             self.heading + SENSOR_BEARING[i] - self.scan_start_heading)
                 if self.scan_angle >= TWO_PI:
@@ -477,15 +490,7 @@ class LineFollower:
                     roads = find_roads(self.road_bearings)
                     print("scan: %d road sightings" % len(self.road_bearings))
                     scanned = sorted({dir_of(self.scan_start_heading + r) for r in roads})
-                    if len(scanned) <= 2:
-                        # A bend or a straight stretch, not a junction: follow the road
-                        # closest to straight ahead without recording anything.
-                        if roads:
-                            print("bend or straight; following the road closest to ahead")
-                            self.start_turn_to(min(roads, key=abs))
-                        else:
-                            self.start_turn_to(0.0)
-                        continue
+                    self.lost_events = 0
                     here = self.junction_index()
                     # The robot arrived heading h, so the road it came from is h + 2.
                     arrived_from = (dir_of(self.scan_start_heading) + 2) % 4
@@ -516,7 +521,11 @@ class LineFollower:
                 error = angle_wrap(self.target_heading - self.heading)
                 if abs(error) <= TURN_TOLERANCE:
                     self.drive(0.0, 0.0)
-                    self.heading = self.target_heading
+                    # Keep the measured heading. Snapping it to the target would add
+                    # up to the turn tolerance as error on every turn.
+                    # The robot is now on a new road: remember its heading so that a
+                    # later obstacle or lost-line turn uses this road, not the old one.
+                    self.travel_heading = self.heading
                     self.state = self.FOLLOW
                     self.lost = 0
                     self.prev = 0.0
