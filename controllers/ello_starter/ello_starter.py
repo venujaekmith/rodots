@@ -7,8 +7,9 @@
 Follows the thin black line. When a junction is found, it moves onto the
 crossing centre, turns a full 360 degrees, counts the roads it sees, and
 drives down one of them:
-  - 3 or more roads: an untried road is chosen at random, never the road the
-    robot came in by or the road it is returning on after a rock
+  - 3 or more roads: an untried road is chosen at random, never the road
+    behind the robot (the way it came in, or the road it returns on after a
+    rock) and never the road it first entered this junction by
   - 2 roads (straight or bend): the road closest to straight ahead
   - 1 road (dead end): that road, which turns the robot around
 
@@ -147,6 +148,7 @@ class LineFollower:
         self.junctions = []
         self.pending = None             # (junction, direction) of the road being driven
         self.backup_goal = 0.0
+        self.arrival_heading = 0.0      # travel heading when the junction was reached
 
         devices = (self.ir + [self.enc_left, self.enc_right, self.left, self.right,
                               self.cam_left, self.cam_right])
@@ -299,6 +301,9 @@ class LineFollower:
     def start_approach(self):
         self.state = self.APPROACH
         self.state_start = self.travelled
+        # Record the direction of travel now, before the robot turns. The road
+        # behind it is the opposite of this heading.
+        self.arrival_heading = self.heading
         self.prev = 0.0
         self.integral = 0.0
 
@@ -390,8 +395,8 @@ class LineFollower:
 
     def route_to_untried(self, here, avoid):
         """Shortest route over known links to a junction that has an untried road.
-        Roads in `avoid` (the way the robot came in) are not used as the first step.
-        Returns (first_direction, target_junction, junctions_on_route) or None."""
+        Roads in `avoid` are not used as the first step. Returns
+        (first_direction, target_junction, junctions_on_route) or None."""
         parent = {here: None}
         queue = deque([here])
         while queue:
@@ -415,12 +420,12 @@ class LineFollower:
         return None
 
     def choose_next(self, here, scanned, avoid):
-        """Pick the next road. Never a road in `avoid` (the way the robot came in,
-        including the road it returned on after a rock), and never a road already
-        taken, linked, dead-ended or blocked. An untried road here is chosen at
-        random. Otherwise the robot routes to the nearest junction with an untried
-        road without using any road in `avoid`. If that is impossible, it only goes
-        back the way it came when ALLOW_RETRACE is True; otherwise it stops."""
+        """Pick the next road. Never a road in `avoid` (the road behind the robot
+        and the entry road), never a road already taken, linked, dead-ended or
+        blocked. An untried road here is chosen at random. Otherwise the robot
+        routes to the nearest junction with an untried road without using any
+        road in `avoid`. It goes back the way it came only if ALLOW_RETRACE is
+        True; otherwise it stops."""
         roads = self.junctions[here]["roads"]
         untried = [d for d in scanned
                    if d not in avoid and roads.get(d, {}).get("state") == UNTRIED]
@@ -541,24 +546,22 @@ class LineFollower:
                         continue
 
                     here = self.junction_index()
+
+                    # The road behind the robot is the opposite of the direction it
+                    # was travelling when it reached this junction. This is taken from
+                    # the actual heading, so it stays right after a rock and a 180 turn.
+                    behind = (dir_of(self.arrival_heading) + 2) % 4
                     if self.pending is not None:
-                        # Normal arrival along a road the robot was driving.
-                        came_from = (self.pending[1] + 2) % 4
-                        self.link_arrival(here, came_from)
-                        # The first road the robot ever used to reach this junction.
-                        self.junctions[here]["entry"] = came_from
-                    else:
-                        # Arrival after a rock: the robot returns along the blocked
-                        # road, which is not the road it originally came in by.
-                        came_from = (dir_of(self.scan_start_heading) + 2) % 4
+                        self.link_arrival(here, behind)
+                        if self.junctions[here]["entry"] is None:
+                            self.junctions[here]["entry"] = behind
 
                     entry = self.junctions[here]["entry"]
                     if entry is None:
-                        entry = came_from
-                        self.junctions[here]["entry"] = entry
-                    # Never choose the way the robot came in, nor the road it is
-                    # returning on. Both are excluded from every choice here.
-                    avoid = {came_from, entry}
+                        self.junctions[here]["entry"] = behind
+                        entry = behind
+                    # Never choose the road behind the robot, nor the entry road.
+                    avoid = {behind, entry}
 
                     roads_here = self.junctions[here]["roads"]
                     for d in avoid:
