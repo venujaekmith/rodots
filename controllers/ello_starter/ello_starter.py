@@ -383,19 +383,23 @@ class LineFollower:
         return "junction %d at (%.2f, %.2f): %s" % (here, j["x"], j["y"], " ".join(parts))
 
     def route_to_untried(self, here, avoid):
-        """First road on the shortest route over known links to a junction that has
-        an untried road. The road `avoid` is not used as the first step. Returns
-        None when no such route exists."""
+        """Shortest route over known links to a junction that has an untried road.
+        The road `avoid` is not used as the first step. Returns (first_direction,
+        target_junction, list of junctions on the route) or None."""
         parent = {here: None}
         queue = deque([here])
         while queue:
             j = queue.popleft()
             if j != here and any(r["state"] == UNTRIED
                                  for r in self.junctions[j]["roads"].values()):
+                path = [j]
                 node = j
                 while parent[node][0] != here:
                     node = parent[node][0]
-                return parent[node][1]
+                    path.append(node)
+                path.append(here)
+                path.reverse()
+                return parent[path[1]][1], j, path
             for d, r in self.junctions[j]["roads"].items():
                 if j == here and d == avoid:
                     continue
@@ -416,11 +420,17 @@ class LineFollower:
         if untried:
             return random.choice(untried), "untried road"
 
-        first = self.route_to_untried(here, came_from)
-        if first is not None:
+        route = self.route_to_untried(here, came_from)
+        if route is not None:
+            first, target, path = route
+            print("route to junction %d through junctions %s"
+                  % (target, " -> ".join(str(p) for p in path)))
             return first, "route over known links to an untried road"
-        first = self.route_to_untried(here, None)
-        if first is not None:
+        route = self.route_to_untried(here, None)
+        if route is not None:
+            first, target, path = route
+            print("no other route: retracing through junctions %s"
+                  % " -> ".join(str(p) for p in path))
             return first, "no other route: retracing the arrival road"
         return None
 
