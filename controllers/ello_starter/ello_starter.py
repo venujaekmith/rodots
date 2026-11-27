@@ -82,21 +82,24 @@ def dir_of(angle):
     """Quantise an absolute bearing to a cardinal direction index 0..3."""
     return int(round(angle / HALF_PI)) % 4
 
-DEBUG_PERIOD_S = 0.5
+DEBUG_PERIOD_S = 0.5            # how often the sensor dump is printed
 
-# Checkpoints (the pads). The order is fixed by the mission.
+# Checkpoints (the coloured pads). The order is fixed by the mission.
 CHECKPOINTS = ("GREEN", "RED", "BLUE", "YELLOW")
 LED_RGB = {"GREEN": 0x00FF00, "RED": 0xFF0000, "BLUE": 0x0000FF, "YELLOW": 0xFFFF00, None: 0}
-PAD_CONFIRM_STEPS = 3           # consecutive camera readings before a colour counts
+PAD_CONFIRM_STEPS = 3           # consecutive camera readings before a pad colour counts
 START_PAD_EXCLUSION = 0.70      # m: the GREEN start pad near the start is not a checkpoint
 BLINK_STEPS = 12                # steps per LED on/off half-cycle when a checkpoint is confirmed
-BLINK_COUNT = 3                 # number of on/off blinks on confirmation
+BLINK_COUNT = 3                 # blinks on confirmation (not in the README; remove if unwanted)
 PARK_DISTANCE = 0.35            # m driven onto YELLOW after it is confirmed, then stop
+WHITE_MARGIN = 15.0             # a sensor this far above the spawn floor is the white start line
+WHITE_CONFIRM = 3               # consecutive readings before the white line counts
+START_LINE_RADIUS = 0.8         # m: a white line this close to the start is the start line
 
 
 def classify_pad(r, g, b):
-    """Name of the checkpoint colour for a mean RGB reading, or None (the same
-    colour rules as the starter controller)."""
+    """Checkpoint colour name for a mean RGB reading, or None (same rules as the
+    starter controller)."""
     top = max(r, g, b)
     low = min(r, g, b)
     if top < 45 or (top - low) / top <= 0.20:
@@ -110,7 +113,7 @@ def classify_pad(r, g, b):
         return "GREEN"
     if bn > 0.62 and top >= 125 and bn > rn * 1.08 and bn > gn * 1.08:
         return "BLUE"
-    return None            # how often the sensor dump is printed
+    return None
 
 
 def find_roads(bearings):
@@ -180,15 +183,18 @@ class LineFollower:
         self.pending = (0, 0)           # (junction, direction) of the road being driven
         self.search_here = False        # after an obstacle: scan 360 at this spot for an open road
         self.search_failures = 0        # searches in a row that found no unexplored road
-        # Checkpoints.
+        # Checkpoints and the white start line.
         self.target_index = 0           # index into CHECKPOINTS: the colour being sought
         self.pads = {}                  # colour -> (junction, direction) of the road it lies on
         self.pad_votes = deque(maxlen=PAD_CONFIRM_STEPS)
-        self.pad_last = None            # colour confirmed on the previous step
-        self.blink_left = 0             # LED toggles still to do
-        self.blink_timer = 0            # steps until the next LED toggle
+        self.pad_last = None
+        self.blink_left = 0
+        self.blink_timer = 0
         self.blink_colour = None
-        self.finish_at = None           # travelled distance at which the robot stops on YELLOW
+        self.finish_at = None
+        self.white_votes = deque(maxlen=WHITE_CONFIRM)
+        self.white_last = False
+        self.white_start_flag = False   # True on the step the start white line is crossed
         self.forced_scan = False        # True while scanning at a non-junction spot
         self.backup_goal = 0.0
         self.arrival_heading = 0.0      # travel heading when the junction was reached
@@ -280,9 +286,33 @@ class LineFollower:
         """A sensor sees the black line when it reads at or below the threshold."""
         return [v <= self.threshold for v in values]
 
+    def coloured_below(self):
+        """True when a downward camera sees a saturated colour, i.e. a checkpoint
+        pad. Roads are black, so IR readings over a pad are not road sightings."""
+        for camera in (self.cam_left, self.cam_right):
+            image = camera.getImage()
+            if image is None:
+                continue
+            width, height = camera.getWidth(), camera.getHeight()
+            r = g = b = 0.0
+            count = 0
+            for y in range(height // 2 - height // 8, height // 2 + height // 8):
+                for x in range(width // 2 - width // 8, width // 2 + width // 8):
+                    r += Camera.imageGetRed(image, width, x, y)
+                    g += Camera.imageGetGreen(image, width, x, y)
+                    b += Camera.imageGetBlue(image, width, x, y)
+                    count += 1
+            if count == 0:
+                continue
+            r, g, b = r / count, g / count, b / count
+            top = max(r, g, b)
+            if top >= 45 and (top - min(r, g, b)) / top > 0.20:
+                return True
+        return False
+
     def pad_colour(self):
-        """Name of the checkpoint colour under a downward camera, or None.
-        Roads are black; a saturated colour means a checkpoint pad."""
+        """Checkpoint colour name under the cameras, or None. Used only to identify
+        checkpoints; road masking still uses coloured_below()."""
         for camera in (self.cam_left, self.cam_right):
             image = camera.getImage()
             if image is None:
@@ -378,9 +408,12 @@ class LineFollower:
 
     def at_start_entrance(self):
         """True when the robot, having gone away from the start, is coming back to
-        it. The start point is the odometry origin."""
+        it. The white start line identifies the start; the odometry origin is the
+        fallback when the line is not seen."""
         if self.max_from_start < START_MIN_EXCURSION:
             return False
+        if self.white_start_flag:
+            return True
         if math.hypot(self.x, self.y) > START_BLOCK_RADIUS:
             return False
         # Heading toward the origin means the dot product of heading and position is negative.
@@ -499,12 +532,11 @@ class LineFollower:
         return CHECKPOINTS[self.target_index] if self.target_index < len(CHECKPOINTS) else None
 
     def choose_next(self, here, scanned, avoid):
-        """Checkpoint first: while the colour being sought has been seen, go to the
-        road it lies on. Otherwise the choice is made as before."""
+        """Checkpoint first: once the colour being sought has been seen, go to the
+        road it lies on. Otherwise the accepted choice is made unchanged."""
         colour = self.target_colour()
         if colour is not None and colour in self.pads:
             pj, pd = self.pads[colour]
-            roads = self.junctions[here]["roads"]
             if pj == here and pd not in avoid and pd in scanned:
                 return pd, "the road with the %s checkpoint" % colour
             if pj != here:
@@ -543,7 +575,7 @@ class LineFollower:
         return None
 
     def on_checkpoint(self, colour):
-        """A pad colour was confirmed on the road being driven."""
+        """A pad colour was confirmed under the cameras."""
         if colour == "GREEN" and math.hypot(self.x, self.y) < START_PAD_EXCLUSION:
             print("GREEN start pad near the start: not a checkpoint")
             return
@@ -562,7 +594,6 @@ class LineFollower:
                 print("YELLOW reached: driving %.2f m onto it, then stopping" % PARK_DISTANCE)
             else:
                 print("next checkpoint: %s" % self.target_colour())
-                self.set_led(self.target_colour())
         else:
             print("out-of-order checkpoint %s saved to memory; still looking for %s"
                   % (colour, expected))
@@ -635,8 +666,8 @@ class LineFollower:
             bits = self.line_bits(values)
             c = self.centroid(bits)
             # Road sightings: black line only, never over a coloured checkpoint pad.
+            # Checkpoint identity from the pad colour; the road masking below is unchanged.
             raw_pad = self.pad_colour()
-            on_colour = raw_pad is not None
             self.pad_votes.append(raw_pad)
             confirmed_pad = None
             if (len(self.pad_votes) == PAD_CONFIRM_STEPS and self.pad_votes[0] is not None
@@ -649,6 +680,17 @@ class LineFollower:
             elif raw_pad is None:
                 self.pad_last = None
             self.update_led()
+
+            # White start line: readings clearly above the spawn floor.
+            white_now = sum(v > self.floor_ref + WHITE_MARGIN for v in values) >= 2
+            self.white_votes.append(white_now)
+            white_confirmed = len(self.white_votes) == WHITE_CONFIRM and all(self.white_votes)
+            self.white_start_flag = (white_confirmed and not self.white_last
+                                     and self.max_from_start >= START_MIN_EXCURSION
+                                     and math.hypot(self.x, self.y) <= START_LINE_RADIUS)
+            self.white_last = white_confirmed
+
+            on_colour = self.coloured_below()
             road_bits = [False] * 7 if on_colour else bits
             self.front_value = self.read_front()
             self.debug(values, bits, road_bits, c, on_colour)
