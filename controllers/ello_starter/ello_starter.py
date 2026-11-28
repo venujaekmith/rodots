@@ -25,21 +25,21 @@ IR_NAMES = [f"ir_line_{i}" for i in range(7)]
 IR_WEIGHTS = (-3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0)  # index 0 = robot-left (+y)
 SENSOR_BEARING = [math.atan2(0.075 - 0.025 * i, 0.13) for i in range(7)]
 
-WHEEL_RADIUS = 0.10          # m
-AXLE_LENGTH = 0.34           # m
-SENSOR_FORWARD_OFFSET = 0.13 # m: IR array & cameras sit +0.13 m ahead of wheel axle
+WHEEL_RADIUS = 0.10           # m
+AXLE_LENGTH = 0.34            # m
+SENSOR_FORWARD_OFFSET = 0.13  # m: IR array & cameras sit +0.13 m ahead of wheel axle
 TWO_PI = 2.0 * math.pi
 HALF_PI = math.pi / 2.0
 
 # --- Speeds & PID Control ---
-CRUISE_SPEED = 5.4           # rad/s on straights
-CURVE_MIN_SPEED = 2.1        # rad/s on tight curves
-APPROACH_SPEED = 2.6         # rad/s while centering axle over intersection
-SCAN_SPEED = 2.8             # rad/s during 360-degree junction scan
+CRUISE_SPEED = 5.4            # rad/s on straights
+CURVE_MIN_SPEED = 2.1         # rad/s on tight curves
+APPROACH_SPEED = 2.6          # rad/s while centering axle over intersection / parking
+SCAN_SPEED = 2.8              # rad/s during 360-degree junction scan
 TURN_MIN_SPEED = 1.0
 TURN_MAX_SPEED = 2.6
 TURN_GAIN = 2.8
-TURN_TOLERANCE = 0.032       # rad (~1.8 deg)
+TURN_TOLERANCE = 0.032        # rad (~1.8 deg)
 
 KP, KI, KD = 1.15, 0.015, 0.65
 
@@ -86,7 +86,7 @@ PAD_EXIT_FRAMES = 4
 START_BOX_RADIUS = 0.85       # m around (0, 0) treated as launch area, not GREEN checkpoint
 BLINK_HALF_STEPS = 10
 BLINK_CYCLES = 3
-YELLOW_CENTER_DRIVE = 0.36    # m: centers 0.35x0.38 m robot inside 0.72x0.72 m YELLOW pad
+YELLOW_CENTER_DRIVE = 0.42    # m: compensates for +0.13 m camera offset to center on 0.72 m pad
 
 # --- Edge States ---
 UNTRIED = "UNTRIED"
@@ -153,10 +153,8 @@ class MazeGraph:
     """Topological + geometric graph storing JUNCTION and TURN nodes."""
 
     def __init__(self):
-        # Nodes dict: id -> {"id": int, "type": "JUNCTION"|"TURN", "x": float, "y": float, "branches": [...]}
         self.nodes = {}
         self.next_id = 0
-        # Checkpoint memory: color -> {"node_id": int, "branch_idx": int, "x": float, "y": float}
         self.checkpoints = {}
 
     def add_junction(self, x, y, branch_bearings):
@@ -174,7 +172,6 @@ class MazeGraph:
 
         if best_id is not None:
             node = self.nodes[best_id]
-            # Merge any newly discovered bearings not already registered on this junction
             for b in branch_bearings:
                 if self.match_branch(best_id, b) is None:
                     node["branches"].append({
@@ -267,7 +264,7 @@ class MazeGraph:
         """Shortest path over non-blocked edges from start_id to any junction satisfying
         goal_predicate(node_id). Returns (first_branch_idx, target_node_id) or None."""
         queue = deque([start_id])
-        parent = {start_id: None}  # node_id -> (prev_node_id, via_branch_idx)
+        parent = {start_id: None}
 
         while queue:
             curr = queue.popleft()
@@ -364,13 +361,12 @@ class ElloMazeController:
 
         # Graph & Navigation State
         self.graph = MazeGraph()
-        # Register START node 0 at (0, 0) with initial North branch (0.0 rad)
         start_id, _, _, _ = self.graph.add_junction(0.0, 0.0, [0.0])
         self.graph.nodes[start_id]["branches"][0]["state"] = EXPLORED
-        self.active_edge = (start_id, 0)   # (origin_junction_id, origin_branch_idx)
+        self.active_edge = (start_id, 0)
         self.edge_start_dist = 0.0
-        self.edge_turns = []               # TURN node IDs recorded along current edge
-        self.returning_from_rock = False   # True while line-following back after an obstacle
+        self.edge_turns = []
+        self.returning_from_rock = False
 
         # State Machine Registers
         self.state = self.FOLLOW
@@ -500,20 +496,17 @@ class ElloMazeController:
         else:
             base_weight = WEIGHT_REVERSE
 
-        # Unit vector pointing from current junction back toward the start origin (0, 0)
         dist_origin = math.hypot(node_x, node_y)
         if dist_origin > 0.35:
             to_start_x = -node_x / dist_origin
             to_start_y = -node_y / dist_origin
         else:
-            # Near origin, starting heading is North (+x), so start direction is South (-x)
             to_start_x, to_start_y = -1.0, 0.0
 
         br_x = math.cos(branch_bearing)
         br_y = math.sin(branch_bearing)
         alignment_to_start = max(0.0, br_x * to_start_x + br_y * to_start_y)
 
-        # Ramp factor grows from 0.15 early on up to 1.0 as time and distance increase
         elapsed_s = (self.steps * self.step_ms) / 1000.0
         ramp = clamp(
             0.15 + 0.85 * max(self.travelled / RESISTANCE_RAMP_DIST, elapsed_s / RESISTANCE_RAMP_TIME),
@@ -532,7 +525,6 @@ class ElloMazeController:
         node = self.graph.nodes[node_id]
         branches = node["branches"]
 
-        # 1. If active target checkpoint was already seen elsewhere in the graph, route to it
         target_color = CHECKPOINTS[self.target_idx] if self.target_idx < len(CHECKPOINTS) else None
         if target_color and target_color in self.graph.checkpoints:
             cp = self.graph.checkpoints[target_color]
@@ -545,7 +537,6 @@ class ElloMazeController:
                 if route is not None and route[0] is not None:
                     return route[0], f"BFS route to {target_color} at node {cp['node_id']}"
 
-        # 2. Evaluate all UNTRIED outgoing branches at this junction
         untried = []
         for idx, br in enumerate(branches):
             if br["state"] == UNTRIED:
@@ -557,7 +548,6 @@ class ElloMazeController:
             best_idx = untried[0][1]
             return best_idx, f"heuristic UNTRIED (score={untried[0][0]:.2f})"
 
-        # 3. All local branches are EXPLORED or BLOCKED -> BFS backtrack to nearest UNTRIED node
         route = self.graph.bfs_to_target(
             node_id,
             lambda nid: any(b["state"] == UNTRIED for b in self.graph.nodes[nid]["branches"]),
@@ -577,7 +567,6 @@ class ElloMazeController:
             elif self.lost_steps <= LOST_GRACE_STEPS + SEARCH_SWEEP_STEPS:
                 self.set_wheels(SEARCH_SPEED * self.last_side, -SEARCH_SPEED * self.last_side)
             else:
-                # Reached a dead end on the line -> treat as degree-1 junction and turn around
                 self.handle_dead_end()
             return
 
@@ -595,8 +584,24 @@ class ElloMazeController:
         speed = CRUISE_SPEED - (CRUISE_SPEED - CURVE_MIN_SPEED) * curve_factor
         self.set_wheels(speed + turn, speed - turn)
 
+    def park_on_yellow(self, bits):
+        """Advance straight onto the YELLOW checkpoint pad without triggering dead-end U-turns."""
+        count = sum(bits)
+        if 1 <= count <= MAX_LINE_SENSORS:
+            err = sum(w for w, b in zip(IR_WEIGHTS, bits) if b) / count
+            turn = 0.8 * err
+            self.set_wheels(APPROACH_SPEED + turn, APPROACH_SPEED - turn)
+        else:
+            # Line ended inside the YELLOW square: drive straight forward to center footprint
+            self.set_wheels(APPROACH_SPEED, APPROACH_SPEED)
+
     def handle_dead_end(self):
         """Treat line termination as a degree-1 JUNCTION node and turn 180° back."""
+        if self.target_idx >= len(CHECKPOINTS) or self.state in (self.FINISH, self.STOPPED):
+            self.set_wheels(0.0, 0.0)
+            self.state = self.STOPPED
+            return
+
         self.set_wheels(0.0, 0.0)
         back_bearing = angle_wrap(self.heading + math.pi)
         nid, sx, sy, _ = self.graph.add_junction(self.x, self.y, [back_bearing])
@@ -626,8 +631,10 @@ class ElloMazeController:
                 self.blink_steps_left -= 1
                 self.blink_timer = BLINK_HALF_STEPS
             return
-        target = CHECKPOINTS[self.target_idx] if self.target_idx < len(CHECKPOINTS) else None
-        self.led.set(LED_COLORS[target])
+        if self.target_idx >= len(CHECKPOINTS):
+            self.led.set(LED_COLORS["YELLOW"])
+            return
+        self.led.set(LED_COLORS[CHECKPOINTS[self.target_idx]])
 
     def process_checkpoint(self, color):
         if color == "GREEN" and math.hypot(self.x, self.y) < START_BOX_RADIUS:
@@ -696,9 +703,14 @@ class ElloMazeController:
             self.refine_ground_calibration(vals, bits, on_pad)
             self.front_val = self.read_front_median()
 
+            # Hard mission-complete lock so the robot never leaves YELLOW after finishing
+            if self.target_idx >= len(CHECKPOINTS) and self.state not in (self.FINISH, self.STOPPED):
+                self.set_wheels(0.0, 0.0)
+                self.led.set(LED_COLORS["YELLOW"])
+                self.state = self.STOPPED
+
             # --- State Machine ---
             if self.state == self.FOLLOW:
-                # Stage 2 Mid-Path Obstacle Detection
                 if self.front_val >= OBSTACLE_MID_PATH:
                     self.set_wheels(0.0, 0.0)
                     if self.active_edge is not None:
@@ -710,7 +722,6 @@ class ElloMazeController:
                     self.state = self.ABORT_TURN
                     continue
 
-                # Check for outer IR trigger (possible TURN corner or JUNCTION)
                 if not on_pad and (bits[0] or bits[6]):
                     self.outer_votes += 1
                     self.outer_left_seen = self.outer_left_seen or bits[0]
@@ -730,13 +741,11 @@ class ElloMazeController:
                 self.follow_line(bits, on_pad)
 
             elif self.state == self.APPROACH:
-                # Advance +0.13 m so the wheel axle sits directly over the intersection center
                 if self.travelled - self.approach_start_dist >= SENSOR_FORWARD_OFFSET:
                     self.set_wheels(0.0, 0.0)
                     straight_continues = any(bits[2:5])
                     both_sides = self.outer_left_seen and self.outer_right_seen
 
-                    # Fast Corner Optimization: 90° TURN node (no straight line & only 1 side branch)
                     if not straight_continues and not both_sides:
                         turn_id = self.graph.add_turn_node(self.x, self.y)
                         if not self.edge_turns or self.edge_turns[-1] != turn_id:
@@ -747,7 +756,6 @@ class ElloMazeController:
                         self.outer_right_seen = False
                         self.state = self.TURN
                     else:
-                        # True multi-way JUNCTION -> run 360° scan
                         self.outer_left_seen = False
                         self.outer_right_seen = False
                         self.scan_start_heading = self.heading
@@ -771,7 +779,6 @@ class ElloMazeController:
                     rel_roads = cluster_road_bearings(self.scan_bearings)
                     abs_roads = [angle_wrap(self.scan_start_heading + r) for r in rel_roads]
 
-                    # Ensure entry road behind robot is represented
                     entry_bearing = angle_wrap(self.arrival_heading + math.pi)
                     if not any(angle_diff(b, entry_bearing) <= ANGLE_MATCH_TOL for b in abs_roads):
                         abs_roads.append(entry_bearing)
@@ -780,7 +787,6 @@ class ElloMazeController:
                     self.x, self.y = sx, sy
                     in_br = self.graph.match_branch(nid, entry_bearing)
 
-                    # Link incoming corridor edge if we arrived from another junction
                     if self.active_edge is not None and not self.returning_from_rock and in_br is not None:
                         src_id, src_br = self.active_edge
                         if src_id != nid or src_br != in_br:
@@ -809,7 +815,6 @@ class ElloMazeController:
                     self.integral = 0.0
                     self.lost_steps = 0
                     if self.pending_junction is not None and self.pending_branch is not None:
-                        # Stage 1 Pre-Entry Obstacle Check before committing to the edge
                         self.entry_check_frames = 3
                         self.state = self.CHECK_ENTRY
                     else:
@@ -831,7 +836,6 @@ class ElloMazeController:
                         self.graph.block_branch(nid, br_idx)
                         self.choose_and_turn_at_junction(nid)
                     else:
-                        # Path clear -> commit to edge
                         if self.graph.nodes[nid]["branches"][br_idx]["state"] == UNTRIED:
                             self.graph.nodes[nid]["branches"][br_idx]["state"] = EXPLORED
                         self.active_edge = (nid, br_idx)
@@ -862,7 +866,7 @@ class ElloMazeController:
                     print(f"MISSION COMPLETE at ({self.x:.2f}, {self.y:.2f}); wheels stopped.")
                     self.state = self.STOPPED
                 else:
-                    self.follow_line(bits, True)
+                    self.park_on_yellow(bits)
 
             else:  # STOPPED
                 self.set_wheels(0.0, 0.0)
