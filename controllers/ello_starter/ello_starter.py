@@ -1,127 +1,131 @@
-"""eLLo line follower with junction scan.
+"""eLLo Graph-Based Maze Solver & Ordered Checkpoint Controller.
 
-Follows the thin black line. When a junction is found, it moves onto the
-crossing centre, turns a full 360 degrees, counts the roads it sees, and
-drives down one of them:
-  - 3 or more roads: an untried road is chosen at random, never the road
-    behind the robot (the way it came in, or the road it returns on after a
-    rock) and never the road it first entered this junction by
-  - 2 roads (straight or bend): the road closest to straight ahead
-  - 1 road (dead end): that road, which turns the robot around
+Coordinate convention:
+- Initial heading = 0.0 rad = North (+x axis), in meters.
+- Left turn (+pi/2 rad) = West (+y axis); Right turn (-pi/2 rad) = East (-y axis).
+- Moving 5.0 m straight North places a node at (x=5.0, y=0.0).
 
-Uses only the 7 IR line sensors, the two wheel motors and the two wheel
-encoders, with the Python standard library and Webots' controller module.
+Graph model:
+- JUNCTION nodes: topological decision vertices (start, 3/4-way intersections, dead ends)
+  with (x, y) coordinates and loop-closure snapping to prevent duplicate path traversal.
+- TURN nodes: geometric 90-degree corner waypoints (x, y) logged along edges without
+  wasting time on 360-degree scans.
+- Edges: track state (UNTRIED, EXPLORED, BLOCKED) and intermediate TURN waypoints.
 """
 
-import math
-import random
-import sys
 from collections import deque
+import math
+import sys
 
 from controller import Camera, Robot
 
 
-IR_NAMES = ["ir_line_%d" % i for i in range(7)]
-WEIGHTS = (-3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0)   # index 0 is the robot's left
+# --- Hardware & Geometry Constants (ROBOT_SPEC.md) ---
+IR_NAMES = [f"ir_line_{i}" for i in range(7)]
+IR_WEIGHTS = (-3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0)  # index 0 = robot-left (+y)
+SENSOR_BEARING = [math.atan2(0.075 - 0.025 * i, 0.13) for i in range(7)]
 
-WHEEL_RADIUS = 0.10
-AXLE_LENGTH = 0.34
+WHEEL_RADIUS = 0.10          # m
+AXLE_LENGTH = 0.34           # m
+SENSOR_FORWARD_OFFSET = 0.13 # m: IR array & cameras sit +0.13 m ahead of wheel axle
 TWO_PI = 2.0 * math.pi
 HALF_PI = math.pi / 2.0
 
-CRUISE = 5.0                 # rad/s on straights
-CURVE_FLOOR = 2.0            # rad/s on sharp bends
-APPROACH_SPEED = 2.2
-SCAN_SPEED = 2.5             # rad/s wheel command while spinning
-TURN_MIN = 0.9
-TURN_MAX = 2.2
-TURN_GAIN = 2.5
-TURN_TOLERANCE = 0.035       # rad, about 2 degrees
-KP, KI, KD = 1.1, 0.02, 0.6
-CALIBRATION_STEPS = 25
-LOST_LIMIT = 12
-JUNCTION_CONFIRM_STEPS = 5
-JUNCTION_CENTER_OFFSET = 0.11   # m from the first outer-sensor hit to the crossing centre
-LINE_FRACTION = 0.35            # a sensor is on the line when it reads below this fraction
-                                # of the way from black to floor (fixed, set at spawn)
-MAX_LINE_SENSORS = 4            # more black sensors than this is a dark surface, not a line
-SEARCH_SPEED = 1.2              # rad/s wheel command while searching for a lost line
-SEARCH_STEPS = 90               # steps to sweep toward the last known side before giving up
+# --- Speeds & PID Control ---
+CRUISE_SPEED = 5.4           # rad/s on straights
+CURVE_MIN_SPEED = 2.1        # rad/s on tight curves
+APPROACH_SPEED = 2.6         # rad/s while centering axle over intersection
+SCAN_SPEED = 2.8             # rad/s during 360-degree junction scan
+TURN_MIN_SPEED = 1.0
+TURN_MAX_SPEED = 2.6
+TURN_GAIN = 2.8
+TURN_TOLERANCE = 0.032       # rad (~1.8 deg)
 
-# Set to True only if the robot may drive back over a road it has already used
-# when no unexplored road is reachable any other way. False means it stops instead.
-ALLOW_RETRACE = False
+KP, KI, KD = 1.15, 0.015, 0.65
+
+# --- Line & Sensor Thresholds ---
+CALIBRATION_STEPS = 20
+LINE_FRACTION = 0.36
+MAX_LINE_SENSORS = 4
+LOST_GRACE_STEPS = 10
+SEARCH_SWEEP_STEPS = 85
+SEARCH_SPEED = 1.4
+
+# --- Junction, Turn & Graph Loop-Closure Parameters ---
+OUTER_CONFIRM_STEPS = 4
+ROAD_CLUSTER_TOL = math.radians(24)
+MIN_ROAD_HITS = 3
+ANGLE_MATCH_TOL = math.radians(28)
+JUNCTION_MERGE_RADIUS = 0.45  # m: snap odometry to existing junction within this radius
+TURN_MERGE_RADIUS = 0.35      # m: deduplicate TURN waypoint nodes
+
+# --- Two-Stage Obstacle Detection ---
+OBSTACLE_PRE_ENTRY = 460.0    # front sensor threshold before committing to an edge
+OBSTACLE_MID_PATH = 530.0     # front sensor threshold while following a corridor (~0.23 m)
+
+# --- Heuristic Edge Weights & Start-Direction Resistance ---
+WEIGHT_LEFT = 1.35            # higher priority to Left turns
+WEIGHT_RIGHT = 1.30           # higher priority to Right turns
+WEIGHT_STRAIGHT = 1.00        # lower priority to Straight
+WEIGHT_REVERSE = 0.15         # avoid U-turns unless backtracking via BFS
+START_RESISTANCE_MAX = 0.85   # max penalty for heading back toward (0, 0)
+RESISTANCE_RAMP_DIST = 12.0   # m of travel to reach full start-direction resistance
+RESISTANCE_RAMP_TIME = 45.0   # s of mission time to reach full start-direction resistance
+
+# --- Checkpoints & Parking (RULES.md) ---
+CHECKPOINTS = ("GREEN", "RED", "BLUE", "YELLOW")
+LED_COLORS = {
+    "GREEN": 0x00FF00,
+    "RED": 0xFF0000,
+    "BLUE": 0x0000FF,
+    "YELLOW": 0xFFFF00,
+    None: 0x000000,
+}
+PAD_CONFIRM_FRAMES = 3
+PAD_EXIT_FRAMES = 4
+START_BOX_RADIUS = 0.85       # m around (0, 0) treated as launch area, not GREEN checkpoint
+BLINK_HALF_STEPS = 10
+BLINK_CYCLES = 3
+YELLOW_CENTER_DRIVE = 0.36    # m: centers 0.35x0.38 m robot inside 0.72x0.72 m YELLOW pad
+
+# --- Edge States ---
+UNTRIED = "UNTRIED"
+EXPLORED = "EXPLORED"
+BLOCKED = "BLOCKED"
 
 
-def clamp(value, low, high):
-    return max(low, min(high, value))
+def clamp(val, low, high):
+    return max(low, min(high, val))
 
 
 def angle_wrap(angle):
     return math.atan2(math.sin(angle), math.cos(angle))
 
 
-# Each IR sensor sits at a fixed angle from the axle: sensor i is at lateral
-# offset 0.075 - 0.025 i, 0.13 m ahead. When a sensor sees a road, the road's
-# direction from the crossing is the heading plus that angle, whatever the
-# heading is. Every sensor that sees the same road therefore gives the same
-# bearing, however the sightings are split across the sweep.
-SENSOR_BEARING = [math.atan2(0.075 - 0.025 * i, 0.13) for i in range(7)]
-ROAD_CLUSTER_TOL = math.radians(25)
-MIN_ROAD_HITS = 3
-JUNCTION_MATCH = 0.35           # m: a scan this close to a stored junction is the same junction
-OBSTACLE_TRIGGER = 520.0        # front lookup 1000 - 2000*d: 520 is 0.24 m from the sensor
-OBSTACLE_BACKUP = 0.10          # m to reverse after the start point is reached
-REVERSE_MAX = 3.0               # m: give up reversing after this far without finding a junction
-START_BLOCK_RADIUS = 0.5        # m: coming within this of the start point is entering the start
-START_MIN_EXCURSION = 1.0       # m the robot must have gone away before the start counts
-UNTRIED, TAKEN, LINK, DEAD_END, BLOCKED = "UNTRIED", "TAKEN", "LINK", "DEAD_END", "BLOCKED"
-DIR_NAME = ("E", "N", "W", "S")  # direction index 0..3 = bearing 0, 90, 180, -90 degrees
+def angle_diff(a, b):
+    return abs(angle_wrap(a - b))
 
 
-def dir_of(angle):
-    """Quantise an absolute bearing to a cardinal direction index 0..3."""
-    return int(round(angle / HALF_PI)) % 4
-
-DEBUG_PERIOD_S = 0.5            # how often the sensor dump is printed
-
-# Checkpoints (the coloured pads). The order is fixed by the mission.
-CHECKPOINTS = ("GREEN", "RED", "BLUE", "YELLOW")
-LED_RGB = {"GREEN": 0x00FF00, "RED": 0xFF0000, "BLUE": 0x0000FF, "YELLOW": 0xFFFF00, None: 0}
-PAD_CONFIRM_STEPS = 3           # consecutive camera readings before a pad colour counts
-START_PAD_EXCLUSION = 0.70      # m: the GREEN start pad near the start is not a checkpoint
-BLINK_STEPS = 12                # steps per LED on/off half-cycle when a checkpoint is confirmed
-BLINK_COUNT = 3                 # blinks on confirmation (not in the README; remove if unwanted)
-PARK_DISTANCE = 0.35            # m driven onto YELLOW after it is confirmed, then stop
-WHITE_MARGIN = 15.0             # a sensor this far above the spawn floor is the white start line
-WHITE_CONFIRM = 3               # consecutive readings before the white line counts
-START_LINE_RADIUS = 0.8         # m: a white line this close to the start is the start line
-START_BOX_RADIUS = 1.0          # m: a GREEN pad this close to the start is the start box;
-                                # the GREEN checkpoint is well beyond this
-
-
-def classify_pad(r, g, b):
-    """Checkpoint colour name for a mean RGB reading, or None (same rules as the
-    starter controller)."""
+def classify_rgb(r, g, b):
+    """Classify downward camera mean RGB into checkpoint name or None."""
     top = max(r, g, b)
     low = min(r, g, b)
-    if top < 45 or (top - low) / top <= 0.20:
+    if top < 45.0 or (top - low) / top <= 0.20:
         return None
     rn, gn, bn = r / top, g / top, b / top
-    if rn > 0.78 and gn > 0.55 and bn < 0.48 and top >= 125 and abs(rn - gn) < 0.42:
+    if rn > 0.78 and gn > 0.55 and bn < 0.48 and top >= 125.0 and abs(rn - gn) < 0.42:
         return "YELLOW"
-    if rn > 0.72 and top >= 150 and rn > gn * 1.18 and rn > bn * 1.25:
+    if rn > 0.72 and top >= 150.0 and rn > gn * 1.18 and rn > bn * 1.25:
         return "RED"
-    if gn > 0.68 and top >= 125 and gn > rn * 1.12 and gn > bn * 1.12:
+    if gn > 0.68 and top >= 125.0 and gn > rn * 1.12 and gn > bn * 1.12:
         return "GREEN"
-    if bn > 0.62 and top >= 125 and bn > rn * 1.08 and bn > gn * 1.08:
+    if bn > 0.62 and top >= 125.0 and bn > rn * 1.08 and bn > gn * 1.08:
         return "BLUE"
     return None
 
 
-def find_roads(bearings):
-    """bearings: road bearings (radians, any range) from the scan. Groups them
-    into roads and returns each road's circular-mean bearing in (-pi, pi]."""
+def cluster_road_bearings(bearings):
+    """Cluster raw relative road sightings into distinct branch bearings in (-pi, pi]."""
     if not bearings:
         return []
     ordered = sorted(b % TWO_PI for b in bearings)
@@ -131,28 +135,168 @@ def find_roads(bearings):
             clusters[-1].append(b)
         else:
             clusters.append([b])
-    # The last and first clusters may be one road that wraps past 0 / 2 pi.
-    if (len(clusters) >= 2
-            and ordered[0] + TWO_PI - clusters[-1][-1] <= ROAD_CLUSTER_TOL):
+    if len(clusters) >= 2 and (ordered[0] + TWO_PI - clusters[-1][-1]) <= ROAD_CLUSTER_TOL:
         clusters[0] = clusters[-1] + clusters[0]
         clusters.pop()
+
     roads = []
-    for cluster in clusters:
-        if len(cluster) < MIN_ROAD_HITS:
+    for cl in clusters:
+        if len(cl) < MIN_ROAD_HITS:
             continue
-        s = sum(math.sin(b) for b in cluster)
-        c = sum(math.cos(b) for b in cluster)
+        s = sum(math.sin(b) for b in cl)
+        c = sum(math.cos(b) for b in cl)
         roads.append(angle_wrap(math.atan2(s, c)))
     return roads
 
 
-class LineFollower:
+class MazeGraph:
+    """Topological + geometric graph storing JUNCTION and TURN nodes."""
+
+    def __init__(self):
+        # Nodes dict: id -> {"id": int, "type": "JUNCTION"|"TURN", "x": float, "y": float, "branches": [...]}
+        self.nodes = {}
+        self.next_id = 0
+        # Checkpoint memory: color -> {"node_id": int, "branch_idx": int, "x": float, "y": float}
+        self.checkpoints = {}
+
+    def add_junction(self, x, y, branch_bearings):
+        """Find existing JUNCTION within JUNCTION_MERGE_RADIUS or create a new one.
+        Returns (node_id, snapped_x, snapped_y, is_new)."""
+        best_id = None
+        best_dist = JUNCTION_MERGE_RADIUS
+        for nid, node in self.nodes.items():
+            if node["type"] != "JUNCTION":
+                continue
+            dist = math.hypot(node["x"] - x, node["y"] - y)
+            if dist <= best_dist:
+                best_id = nid
+                best_dist = dist
+
+        if best_id is not None:
+            node = self.nodes[best_id]
+            # Merge any newly discovered bearings not already registered on this junction
+            for b in branch_bearings:
+                if self.match_branch(best_id, b) is None:
+                    node["branches"].append({
+                        "bearing": angle_wrap(b),
+                        "state": UNTRIED,
+                        "to_node": None,
+                        "to_branch": None,
+                        "turns": [],
+                        "length": 0.0,
+                    })
+            return best_id, node["x"], node["y"], False
+
+        nid = self.next_id
+        self.next_id += 1
+        branches = []
+        for b in branch_bearings:
+            branches.append({
+                "bearing": angle_wrap(b),
+                "state": UNTRIED,
+                "to_node": None,
+                "to_branch": None,
+                "turns": [],
+                "length": 0.0,
+            })
+        self.nodes[nid] = {
+            "id": nid,
+            "type": "JUNCTION",
+            "x": x,
+            "y": y,
+            "branches": branches,
+        }
+        return nid, x, y, True
+
+    def add_turn_node(self, x, y):
+        """Register a TURN waypoint node (or return an existing one nearby)."""
+        for nid, node in self.nodes.items():
+            if node["type"] == "TURN" and math.hypot(node["x"] - x, node["y"] - y) <= TURN_MERGE_RADIUS:
+                return nid
+        nid = self.next_id
+        self.next_id += 1
+        self.nodes[nid] = {
+            "id": nid,
+            "type": "TURN",
+            "x": x,
+            "y": y,
+            "branches": [],
+        }
+        return nid
+
+    def match_branch(self, node_id, bearing):
+        """Return index of branch on node_id matching absolute `bearing`, or None."""
+        node = self.nodes[node_id]
+        best_idx = None
+        best_err = ANGLE_MATCH_TOL
+        for idx, br in enumerate(node["branches"]):
+            err = angle_diff(br["bearing"], bearing)
+            if err <= best_err:
+                best_err = err
+                best_idx = idx
+        return best_idx
+
+    def link_corridor(self, src_id, src_br, dst_id, dst_br, turn_ids, length):
+        """Connect two junction branches bidirectionally and mark both EXPLORED."""
+        b_src = self.nodes[src_id]["branches"][src_br]
+        b_dst = self.nodes[dst_id]["branches"][dst_br]
+
+        if b_src["state"] != BLOCKED:
+            b_src["state"] = EXPLORED
+        b_src["to_node"] = dst_id
+        b_src["to_branch"] = dst_br
+        b_src["turns"] = list(turn_ids)
+        b_src["length"] = length
+
+        if b_dst["state"] != BLOCKED:
+            b_dst["state"] = EXPLORED
+        b_dst["to_node"] = src_id
+        b_dst["to_branch"] = src_br
+        b_dst["turns"] = list(reversed(turn_ids))
+        b_dst["length"] = length
+
+    def block_branch(self, node_id, branch_idx):
+        """Mark a branch (and its paired reverse link, if known) as BLOCKED."""
+        br = self.nodes[node_id]["branches"][branch_idx]
+        br["state"] = BLOCKED
+        if br["to_node"] is not None and br["to_branch"] is not None:
+            far_br = self.nodes[br["to_node"]]["branches"][br["to_branch"]]
+            far_br["state"] = BLOCKED
+
+    def bfs_to_target(self, start_id, goal_predicate):
+        """Shortest path over non-blocked edges from start_id to any junction satisfying
+        goal_predicate(node_id). Returns (first_branch_idx, target_node_id) or None."""
+        queue = deque([start_id])
+        parent = {start_id: None}  # node_id -> (prev_node_id, via_branch_idx)
+
+        while queue:
+            curr = queue.popleft()
+            if goal_predicate(curr):
+                if curr == start_id:
+                    return None, start_id
+                step = curr
+                while parent[step][0] != start_id:
+                    step = parent[step][0]
+                return parent[step][1], curr
+
+            for idx, br in enumerate(self.nodes[curr]["branches"]):
+                if br["state"] == BLOCKED or br["to_node"] is None:
+                    continue
+                nxt = br["to_node"]
+                if nxt not in parent:
+                    parent[nxt] = (curr, idx)
+                    queue.append(nxt)
+        return None
+
+
+class ElloMazeController:
+    # Finite-state machine states
     FOLLOW = "FOLLOW"
     APPROACH = "APPROACH"
     SCAN = "SCAN"
     TURN = "TURN"
-    REVERSE = "REVERSE"
-    BACKUP = "BACKUP"
+    CHECK_ENTRY = "CHECK_ENTRY"
+    ABORT_TURN = "ABORT_TURN"
     FINISH = "FINISH"
     STOPPED = "STOPPED"
 
@@ -160,758 +304,590 @@ class LineFollower:
         self.robot = robot
         self.step_ms = int(robot.getBasicTimeStep())
 
-        self.ir = [robot.getDevice(n) for n in IR_NAMES]
-        self.enc_left = robot.getDevice("left_wheel_encoder")
-        self.enc_right = robot.getDevice("right_wheel_encoder")
-        self.left = robot.getDevice("left_wheel_motor")
-        self.right = robot.getDevice("right_wheel_motor")
+        # Devices
+        self.left_motor = robot.getDevice("left_wheel_motor")
+        self.right_motor = robot.getDevice("right_wheel_motor")
+        self.left_enc = robot.getDevice("left_wheel_encoder")
+        self.right_enc = robot.getDevice("right_wheel_encoder")
+        self.front_sensor = robot.getDevice("front_obstacle_sensor")
         self.cam_left = robot.getDevice("checkpoint_color_left")
         self.cam_right = robot.getDevice("checkpoint_color_right")
-        self.front = robot.getDevice("front_obstacle_sensor")
-        if self.front is None:
-            raise RuntimeError("missing front_obstacle_sensor")
-        self.front.enable(self.step_ms)
-        self.front_votes = deque(maxlen=3)
-        self.front_value = 0.0
-        self.x = 0.0
-        self.y = 0.0
-        self.max_from_start = 0.0       # farthest the robot has been from the start point
-
-        # Junction memory. Each junction records its position, the road it was
-        # first entered by ("entry"), and for each cardinal road its state:
-        # UNTRIED, TAKEN, LINK (to another junction), DEAD_END or BLOCKED.
-        # The start point is junction 0 at the origin. Its only road (east, the way
-        # the robot drives off the start) is taken from the beginning, so every road
-        # the robot drives is tied to a junction, including the first one.
-        self.junctions = [{"x": 0.0, "y": 0.0, "roads": {0: {"state": TAKEN}}, "entry": None}]
-        self.pending = (0, 0)           # (junction, direction) of the road being driven
-        self.search_here = False        # after an obstacle: scan 360 at this spot for an open road
-        self.search_failures = 0        # searches in a row that found no unexplored road
-        self.reverse_start = 0.0        # travelled value when reversing after an obstacle began
-        # Checkpoints and the white start line.
-        self.target_index = 0           # index into CHECKPOINTS: the colour being sought
-        self.pads = {}                  # colour -> (junction, direction) of the road it lies on
-        self.pad_votes = deque(maxlen=PAD_CONFIRM_STEPS)
-        self.pad_last = None
-        self.blink_left = 0
-        self.blink_timer = 0
-        self.blink_colour = None
-        self.finish_at = None
-        self.white_votes = deque(maxlen=WHITE_CONFIRM)
-        self.white_last = False
-        self.white_start_flag = False   # True on the step the start white line is crossed
-        self.box_entry_flag = False     # True on the step the start box is re-entered
-        self.green_last = False
-        self.forced_scan = False        # True while scanning at a non-junction spot
-        self.backup_goal = 0.0
-        self.arrival_heading = 0.0      # travel heading when the junction was reached
-
-        devices = (self.ir + [self.enc_left, self.enc_right, self.left, self.right,
-                              self.cam_left, self.cam_right])
-        if any(d is None for d in devices):
-            raise RuntimeError("missing line sensor, encoder or wheel motor")
-
-        for s in self.ir:
-            s.enable(self.step_ms)
-        self.enc_left.enable(self.step_ms)
-        self.enc_right.enable(self.step_ms)
-        self.cam_left.enable(self.step_ms)
-        self.cam_right.enable(self.step_ms)
         self.led = robot.getDevice("rgb_status_led")
-        if self.led is None:
-            raise RuntimeError("missing rgb_status_led")
-        self.left.setPosition(float("inf"))
-        self.right.setPosition(float("inf"))
-        limits = [m for m in (self.left.getMaxVelocity(), self.right.getMaxVelocity()) if m > 0]
+        self.ir = [robot.getDevice(name) for name in IR_NAMES]
+
+        required = [
+            self.left_motor, self.right_motor, self.left_enc, self.right_enc,
+            self.front_sensor, self.cam_left, self.cam_right, self.led, *self.ir
+        ]
+        if any(d is None for d in required):
+            raise RuntimeError("Missing required eLLo device(s).")
+
+        self.left_motor.setPosition(float("inf"))
+        self.right_motor.setPosition(float("inf"))
+        self.left_motor.setVelocity(0.0)
+        self.right_motor.setVelocity(0.0)
+
+        limits = [m for m in (self.left_motor.getMaxVelocity(), self.right_motor.getMaxVelocity()) if m > 0]
         self.max_vel = min(limits) if limits else 8.0
 
-        # Odometry from the encoders.
+        self.left_enc.enable(self.step_ms)
+        self.right_enc.enable(self.step_ms)
+        self.front_sensor.enable(self.step_ms)
+        self.cam_left.enable(self.step_ms)
+        self.cam_right.enable(self.step_ms)
+        for s in self.ir:
+            s.enable(self.step_ms)
+
+        # Pose & Odometry (North = 0.0 rad = +x)
+        self.x = 0.0
+        self.y = 0.0
         self.heading = 0.0
         self.travelled = 0.0
         self.last_enc = None
+        self.front_buf = deque(maxlen=3)
+        self.front_val = 0.0
 
-        # Line sensing.
-        self.black_ref = 0.0
-        self.floor_ref = 0.0
-        self.threshold = 0.0
+        # IR Calibration
+        self.black_ref = 100.0
+        self.ground_ref = 285.0
+        self.ir_threshold = 165.0
+        self.ground_calibrated = False
+
+        # PID Line Following
         self.integral = 0.0
-        self.prev = 0.0
-        self.last_side = 0.0
-        self.travel_heading = 0.0       # heading when the line was last centred
-        self.lost = 0
+        self.prev_err = 0.0
+        self.last_side = 1.0
+        self.lost_steps = 0
         self.outer_votes = 0
+        self.outer_left_seen = False
+        self.outer_right_seen = False
 
-        # Junction state.
+        # Graph & Navigation State
+        self.graph = MazeGraph()
+        # Register START node 0 at (0, 0) with initial North branch (0.0 rad)
+        start_id, _, _, _ = self.graph.add_junction(0.0, 0.0, [0.0])
+        self.graph.nodes[start_id]["branches"][0]["state"] = EXPLORED
+        self.active_edge = (start_id, 0)   # (origin_junction_id, origin_branch_idx)
+        self.edge_start_dist = 0.0
+        self.edge_turns = []               # TURN node IDs recorded along current edge
+        self.returning_from_rock = False   # True while line-following back after an obstacle
+
+        # State Machine Registers
         self.state = self.FOLLOW
-        self.state_start = 0.0
-        self.target_heading = 0.0
-        self.scan_angle = 0.0
-        self.road_bearings = []
+        self.approach_start_dist = 0.0
+        self.arrival_heading = 0.0
         self.scan_start_heading = 0.0
+        self.scan_accum = 0.0
+        self.scan_bearings = []
+        self.target_heading = 0.0
+        self.pending_junction = None
+        self.pending_branch = None
+        self.entry_check_frames = 0
 
-        # Debug output.
+        # Checkpoints & LED
+        self.target_idx = 0
+        self.pad_votes = deque(maxlen=PAD_CONFIRM_FRAMES)
+        self.active_pad = None
+        self.pad_clear_count = 0
+        self.blink_steps_left = 0
+        self.blink_timer = 0
+        self.blink_color = None
+        self.finish_target_dist = 0.0
         self.steps = 0
-        self.last_debug = -1e9
 
-    # ---- motion and odometry -------------------------------------------
-    def drive(self, left, right):
-        self.left.setVelocity(clamp(left, -self.max_vel, self.max_vel))
-        self.right.setVelocity(clamp(right, -self.max_vel, self.max_vel))
+    # --- Motion & Odometry ---
+    def set_wheels(self, left_v, right_v):
+        self.left_motor.setVelocity(clamp(left_v, -self.max_vel, self.max_vel))
+        self.right_motor.setVelocity(clamp(right_v, -self.max_vel, self.max_vel))
 
     def update_odometry(self):
-        left = float(self.enc_left.getValue())
-        right = float(self.enc_right.getValue())
+        l_enc = float(self.left_enc.getValue())
+        r_enc = float(self.right_enc.getValue())
         if self.last_enc is None:
-            self.last_enc = (left, right)
+            self.last_enc = (l_enc, r_enc)
             return 0.0
-        dl = (left - self.last_enc[0]) * WHEEL_RADIUS
-        dr = (right - self.last_enc[1]) * WHEEL_RADIUS
-        self.last_enc = (left, right)
+        dl = (l_enc - self.last_enc[0]) * WHEEL_RADIUS
+        dr = (r_enc - self.last_enc[1]) * WHEEL_RADIUS
+        self.last_enc = (l_enc, r_enc)
+
         ds = 0.5 * (dl + dr)
         dth = (dr - dl) / AXLE_LENGTH
-        mid = self.heading + 0.5 * dth
-        self.x += ds * math.cos(mid)
-        self.y += ds * math.sin(mid)
+        mid_heading = self.heading + 0.5 * dth
+        self.x += ds * math.cos(mid_heading)
+        self.y += ds * math.sin(mid_heading)
         self.heading = angle_wrap(self.heading + dth)
-        self.travelled += ds
+        self.travelled += abs(ds)
         return dth
 
-    # ---- line sensing ----------------------------------------------------
-    def read_ir(self):
-        return [float(s.getValue()) for s in self.ir]
+    # --- Sensors & Calibration ---
+    def read_ir_valid(self):
+        """Read all 7 IR sensors, rejecting NaN/inf/zero glitches."""
+        vals = []
+        for s in self.ir:
+            v = float(s.getValue())
+            if not math.isfinite(v) or v <= 1.0:
+                vals.append(float("nan"))
+            else:
+                vals.append(v)
+        return vals
 
-    def calibrate(self, samples):
-        """Fix the black and floor references from the spawn samples. The line
-        sensor reads the darkest value; most sensors read the floor. The threshold
-        is set once, so it cannot drift over a long run."""
-        readings = sorted(v for s in samples for v in s)
-        self.black_ref = readings[0]
-        self.floor_ref = readings[len(readings) // 2]
-        self.threshold = self.black_ref + LINE_FRACTION * (self.floor_ref - self.black_ref)
+    def calibrate_initial(self, samples):
+        valid = sorted(v for row in samples for v in row if math.isfinite(v))
+        if len(valid) >= 7:
+            self.black_ref = valid[0]
+            self.ground_ref = valid[len(valid) // 2]
+            self.ir_threshold = self.black_ref + LINE_FRACTION * (self.ground_ref - self.black_ref)
 
-    def line_bits(self, values):
-        """A sensor sees the black line when it reads at or below the threshold."""
-        return [v <= self.threshold for v in values]
+    def refine_ground_calibration(self, vals, bits, on_pad):
+        """Once outside the START box and not on a colored pad, adapt ground_ref to brown floor."""
+        if self.ground_calibrated or on_pad:
+            return
+        if math.hypot(self.x, self.y) < START_BOX_RADIUS:
+            return
+        if sum(bits) in (1, 2):
+            off_line = [v for v, b in zip(vals, bits) if not b and math.isfinite(v)]
+            if len(off_line) >= 4:
+                med_floor = sorted(off_line)[len(off_line) // 2]
+                self.ground_ref = med_floor
+                self.ir_threshold = self.black_ref + LINE_FRACTION * (self.ground_ref - self.black_ref)
+                self.ground_calibrated = True
 
-    def coloured_below(self):
-        """True when a downward camera sees a saturated colour, i.e. a checkpoint
-        pad. Roads are black, so IR readings over a pad are not road sightings."""
-        for camera in (self.cam_left, self.cam_right):
-            image = camera.getImage()
-            if image is None:
+    def get_line_bits(self, vals):
+        return [math.isfinite(v) and (v <= self.ir_threshold) for v in vals]
+
+    def read_front_median(self):
+        v = float(self.front_sensor.getValue())
+        if not math.isfinite(v):
+            v = 0.0
+        self.front_buf.append(v)
+        s = sorted(self.front_buf)
+        return s[len(s) // 2]
+
+    def detect_pad_color(self):
+        """Return confirmed checkpoint color under either downward camera, or None."""
+        for cam in (self.cam_left, self.cam_right):
+            img = cam.getImage()
+            if img is None:
                 continue
-            width, height = camera.getWidth(), camera.getHeight()
+            w, h = cam.getWidth(), cam.getHeight()
             r = g = b = 0.0
-            count = 0
-            for y in range(height // 2 - height // 8, height // 2 + height // 8):
-                for x in range(width // 2 - width // 8, width // 2 + width // 8):
-                    r += Camera.imageGetRed(image, width, x, y)
-                    g += Camera.imageGetGreen(image, width, x, y)
-                    b += Camera.imageGetBlue(image, width, x, y)
-                    count += 1
-            if count == 0:
-                continue
-            r, g, b = r / count, g / count, b / count
-            top = max(r, g, b)
-            if top >= 45 and (top - min(r, g, b)) / top > 0.20:
-                return True
-        return False
-
-    def pad_colour(self):
-        """Checkpoint colour name under the cameras, or None. Used only to identify
-        checkpoints; road masking still uses coloured_below()."""
-        for camera in (self.cam_left, self.cam_right):
-            image = camera.getImage()
-            if image is None:
-                continue
-            width, height = camera.getWidth(), camera.getHeight()
-            r = g = b = 0.0
-            count = 0
-            for y in range(height // 2 - height // 8, height // 2 + height // 8):
-                for x in range(width // 2 - width // 8, width // 2 + width // 8):
-                    r += Camera.imageGetRed(image, width, x, y)
-                    g += Camera.imageGetGreen(image, width, x, y)
-                    b += Camera.imageGetBlue(image, width, x, y)
-                    count += 1
-            if count == 0:
-                continue
-            name = classify_pad(r / count, g / count, b / count)
-            if name is not None:
-                return name
+            cnt = 0
+            for y in range(h // 2 - h // 8, h // 2 + h // 8):
+                for x in range(w // 2 - w // 8, w // 2 + w // 8):
+                    r += Camera.imageGetRed(img, w, x, y)
+                    g += Camera.imageGetGreen(img, w, x, y)
+                    b += Camera.imageGetBlue(img, w, x, y)
+                    cnt += 1
+            if cnt > 0:
+                color = classify_rgb(r / cnt, g / cnt, b / cnt)
+                if color is not None:
+                    return color
         return None
 
-    def centroid(self, bits):
+    # --- Heuristic Scoring & Graph Routing ---
+    def score_branch(self, node_x, node_y, arrival_heading, branch_bearing):
+        """Score an UNTRIED branch:
+        - Higher preference for Left and Right turns over Straight.
+        - Increasing resistance against branches pointing back toward the start (0, 0).
+        """
+        rel = angle_wrap(branch_bearing - arrival_heading)
+        if abs(rel - HALF_PI) <= math.radians(35):
+            base_weight = WEIGHT_LEFT
+        elif abs(rel + HALF_PI) <= math.radians(35):
+            base_weight = WEIGHT_RIGHT
+        elif abs(rel) <= math.radians(35):
+            base_weight = WEIGHT_STRAIGHT
+        else:
+            base_weight = WEIGHT_REVERSE
+
+        # Unit vector pointing from current junction back toward the start origin (0, 0)
+        dist_origin = math.hypot(node_x, node_y)
+        if dist_origin > 0.35:
+            to_start_x = -node_x / dist_origin
+            to_start_y = -node_y / dist_origin
+        else:
+            # Near origin, starting heading is North (+x), so start direction is South (-x)
+            to_start_x, to_start_y = -1.0, 0.0
+
+        br_x = math.cos(branch_bearing)
+        br_y = math.sin(branch_bearing)
+        alignment_to_start = max(0.0, br_x * to_start_x + br_y * to_start_y)
+
+        # Ramp factor grows from 0.15 early on up to 1.0 as time and distance increase
+        elapsed_s = (self.steps * self.step_ms) / 1000.0
+        ramp = clamp(
+            0.15 + 0.85 * max(self.travelled / RESISTANCE_RAMP_DIST, elapsed_s / RESISTANCE_RAMP_TIME),
+            0.15,
+            1.0,
+        )
+        start_resistance = ramp * START_RESISTANCE_MAX * alignment_to_start
+        return base_weight - start_resistance
+
+    def select_outgoing_branch(self, node_id, arrival_heading):
+        """Choose next branch at `node_id` using:
+        1) BFS to already-spotted active target checkpoint if mapped.
+        2) Heuristic-weighted UNTRIED branch (Left/Right preferred, start-direction resisted).
+        3) BFS shortest unblocked backtrack to the nearest junction with an UNTRIED branch.
+        """
+        node = self.graph.nodes[node_id]
+        branches = node["branches"]
+
+        # 1. If active target checkpoint was already seen elsewhere in the graph, route to it
+        target_color = CHECKPOINTS[self.target_idx] if self.target_idx < len(CHECKPOINTS) else None
+        if target_color and target_color in self.graph.checkpoints:
+            cp = self.graph.checkpoints[target_color]
+            if cp["node_id"] == node_id:
+                br_idx = cp["branch_idx"]
+                if branches[br_idx]["state"] != BLOCKED:
+                    return br_idx, f"direct to mapped {target_color} checkpoint"
+            else:
+                route = self.graph.bfs_to_target(node_id, lambda nid: nid == cp["node_id"])
+                if route is not None and route[0] is not None:
+                    return route[0], f"BFS route to {target_color} at node {cp['node_id']}"
+
+        # 2. Evaluate all UNTRIED outgoing branches at this junction
+        untried = []
+        for idx, br in enumerate(branches):
+            if br["state"] == UNTRIED:
+                sc = self.score_branch(node["x"], node["y"], arrival_heading, br["bearing"])
+                untried.append((sc, idx))
+
+        if untried:
+            untried.sort(reverse=True)
+            best_idx = untried[0][1]
+            return best_idx, f"heuristic UNTRIED (score={untried[0][0]:.2f})"
+
+        # 3. All local branches are EXPLORED or BLOCKED -> BFS backtrack to nearest UNTRIED node
+        route = self.graph.bfs_to_target(
+            node_id,
+            lambda nid: any(b["state"] == UNTRIED for b in self.graph.nodes[nid]["branches"]),
+        )
+        if route is not None and route[0] is not None:
+            return route[0], f"BFS backtrack toward node {route[1]}"
+
+        return None, "no reachable untried branches remaining"
+
+    # --- PID Line Following ---
+    def follow_line(self, bits, on_pad):
         count = sum(bits)
         if count == 0 or count > MAX_LINE_SENSORS:
-            return None
-        return sum(w for w, b in zip(WEIGHTS, bits) if b) / count
-
-    # ---- behaviour ---------------------------------------------------------
-    def follow(self, bits, c):
-        if c is None:
-            self.lost += 1
-            if self.lost <= LOST_LIMIT:
-                self.drive(CRUISE * 0.4, CRUISE * 0.4)
-            elif self.lost <= LOST_LIMIT + SEARCH_STEPS:
-                # Sweep toward the side the line was last seen on. A positive
-                # side means the line was on the right, so turn right.
-                side = self.last_side or 1.0
-                self.drive(SEARCH_SPEED * side, -SEARCH_SPEED * side)
+            self.lost_steps += 1
+            if self.lost_steps <= LOST_GRACE_STEPS:
+                self.set_wheels(CRUISE_SPEED * 0.45, CRUISE_SPEED * 0.45)
+            elif self.lost_steps <= LOST_GRACE_STEPS + SEARCH_SWEEP_STEPS:
+                self.set_wheels(SEARCH_SPEED * self.last_side, -SEARCH_SPEED * self.last_side)
             else:
-                print("line not found after search; turning around")
-                self.close_pending(DEAD_END)
-                self.drive(0.0, 0.0)
-                # Turn back to the heading the robot had on the line, not its current
-                # heading, which the search sweep may have disturbed.
-                self.target_heading = angle_wrap(self.travel_heading + math.pi)
-                self.state = self.TURN
+                # Reached a dead end on the line -> treat as degree-1 junction and turn around
+                self.handle_dead_end()
             return
 
-        self.lost = 0
-        if abs(c) < 0.3:
-            self.travel_heading = self.heading
-        if c != 0.0:
-            self.last_side = -1.0 if c < 0 else 1.0
-        error_change = c - self.prev
-        self.prev = c
-        self.integral = clamp(self.integral + c, -20.0, 20.0)
-        turn = KP * c + KI * self.integral + KD * error_change
-        blend = min(1.0, abs(c) / 1.5 + 0.4 * abs(error_change))
-        speed = CRUISE - (CRUISE - CURVE_FLOOR) * blend
-        self.drive(speed + turn, speed - turn)
+        self.lost_steps = 0
+        err = sum(w for w, b in zip(IR_WEIGHTS, bits) if b) / count
+        if err != 0.0:
+            self.last_side = -1.0 if err < 0 else 1.0
 
-    def start_approach(self):
-        self.state = self.APPROACH
-        self.state_start = self.travelled
-        # Record the direction of travel now, before the robot turns. The road
-        # behind it is the opposite of this heading.
-        self.arrival_heading = self.heading
-        self.prev = 0.0
-        self.integral = 0.0
+        d_err = err - self.prev_err
+        self.prev_err = err
+        self.integral = clamp(self.integral + err, -15.0, 15.0)
+        turn = KP * err + KI * self.integral + KD * d_err
 
-    def read_front(self):
-        """Median of the last three front readings, so one noisy step never triggers."""
-        value = float(self.front.getValue())
-        if not math.isfinite(value):
-            value = 0.0
-        self.front_votes.append(value)
-        ordered = sorted(self.front_votes)
-        return ordered[len(ordered) // 2]
+        curve_factor = min(1.0, abs(err) / 1.5 + 0.35 * abs(d_err))
+        speed = CRUISE_SPEED - (CRUISE_SPEED - CURVE_MIN_SPEED) * curve_factor
+        self.set_wheels(speed + turn, speed - turn)
 
-    def junction_index(self):
-        """Index of the junction at the current position. A known junction is
-        matched by its nearest stored position and the odometry is snapped to
-        it, so drift cannot split one junction into two."""
-        best, best_dist = None, JUNCTION_MATCH
-        for i, j in enumerate(self.junctions):
-            dist = math.hypot(j["x"] - self.x, j["y"] - self.y)
-            if dist <= best_dist:
-                best, best_dist = i, dist
-        if best is not None:
-            self.x, self.y = self.junctions[best]["x"], self.junctions[best]["y"]
-            return best
-        self.junctions.append({"x": self.x, "y": self.y, "roads": {}, "entry": None})
-        return len(self.junctions) - 1
+    def handle_dead_end(self):
+        """Treat line termination as a degree-1 JUNCTION node and turn 180° back."""
+        self.set_wheels(0.0, 0.0)
+        back_bearing = angle_wrap(self.heading + math.pi)
+        nid, sx, sy, _ = self.graph.add_junction(self.x, self.y, [back_bearing])
+        self.x, self.y = sx, sy
+        in_idx = self.graph.match_branch(nid, back_bearing)
 
-    def at_start_entrance(self):
-        """True when the robot, having gone away from the start, is coming back to
-        it. The white start line identifies the start; the odometry origin is the
-        fallback when the line is not seen."""
-        if self.max_from_start < START_MIN_EXCURSION:
-            return False
-        if self.white_start_flag or self.box_entry_flag:
-            return True
-        if math.hypot(self.x, self.y) > START_BLOCK_RADIUS:
-            return False
-        # Heading toward the origin means the dot product of heading and position is negative.
-        return self.x * math.cos(self.heading) + self.y * math.sin(self.heading) < 0
+        if self.active_edge is not None and not self.returning_from_rock and in_idx is not None:
+            src_id, src_br = self.active_edge
+            corridor_len = self.travelled - self.edge_start_dist
+            self.graph.link_corridor(src_id, src_br, nid, in_idx, self.edge_turns, corridor_len)
 
-    def start_obstacle_escape(self, reason, search=False):
-        """Stop and block the road the robot is on, so later visits avoid it.
-        For an obstacle (search=True) the robot reverses until it finds a junction,
-        then scans 360 degrees there. For the start point it backs up and turns back."""
-        self.drive(0.0, 0.0)
-        print("%s: blocking this road" % reason)
-        self.close_pending(BLOCKED)
-        if search:
-            self.search_here = True
-            self.reverse_start = self.travelled
-            self.outer_votes = 0
-            self.state = self.REVERSE
-            print("reversing until a junction is found")
-            return
-        self.search_here = False
-        print("marking this road as explored: it leads back to the start")
-        self.backup_goal = self.travelled - OBSTACLE_BACKUP
-        self.target_heading = angle_wrap(self.travel_heading + math.pi)
-        self.state = self.BACKUP
+        self.returning_from_rock = False
+        self.active_edge = (nid, in_idx) if in_idx is not None else None
+        self.edge_start_dist = self.travelled
+        self.edge_turns = []
+        self.target_heading = back_bearing
+        self.state = self.TURN
+        print(f"Dead end mapped as JUNCTION {nid} at ({self.x:.2f}, {self.y:.2f}); turning around.")
 
-    def close_pending(self, state):
-        """The road being driven has ended in a dead end or an obstacle. If it was
-        a known link, both ends are blocked so no route can cross it."""
-        if self.pending is None:
-            return
-        j, d = self.pending
-        old = self.junctions[j]["roads"].get(d, {})
-        new = {"state": state}
-        if "to" in old:
-            new["to"], new["back"] = old["to"], old["back"]
-            far = self.junctions[old["to"]]["roads"].get(old["back"])
-            if far is not None:
-                self.junctions[old["to"]]["roads"][old["back"]] = {
-                    "state": state, "to": j, "back": d}
-        self.junctions[j]["roads"][d] = new
-        print("memory: junction %d road %s is %s" % (j, DIR_NAME[d], state))
-        self.pending = None
-
-    def link_arrival(self, here, back):
-        """The road that was driven from a known junction has reached this one."""
-        if self.pending is None:
-            return
-        src, d = self.pending
-        self.pending = None
-        self.junctions[src]["roads"][d] = {"state": LINK, "to": here, "back": back}
-        self.junctions[here]["roads"][back] = {"state": LINK, "to": src, "back": d}
-        print("memory: junction %d road %s links to junction %d"
-              % (src, DIR_NAME[d], here))
-
-    def note_roads(self, here, dirs):
-        roads = self.junctions[here]["roads"]
-        for d in dirs:
-            if d not in roads:
-                roads[d] = {"state": UNTRIED}
-
-    def describe(self, here):
-        j = self.junctions[here]
-        parts = []
-        for d in range(4):
-            r = j["roads"].get(d)
-            if r is None:
-                continue
-            if r["state"] == LINK:
-                parts.append("%s=LINK->%d" % (DIR_NAME[d], r["to"]))
-            else:
-                parts.append("%s=%s" % (DIR_NAME[d], r["state"]))
-        entry = "none" if j["entry"] is None else DIR_NAME[j["entry"]]
-        return "junction %d at (%.2f, %.2f) entry=%s: %s" % (
-            here, j["x"], j["y"], entry, " ".join(parts))
-
-    def route_to_untried(self, here, avoid):
-        """Shortest route over known links to a junction that has an untried road.
-        Roads in `avoid` are not used as the first step. Returns
-        (first_direction, target_junction, junctions_on_route) or None."""
-        parent = {here: None}
-        queue = deque([here])
-        while queue:
-            j = queue.popleft()
-            if j != here and any(r["state"] == UNTRIED
-                                 for r in self.junctions[j]["roads"].values()):
-                path = [j]
-                node = j
-                while parent[node][0] != here:
-                    node = parent[node][0]
-                    path.append(node)
-                path.append(here)
-                path.reverse()
-                return parent[path[1]][1], j, path
-            for d, r in self.junctions[j]["roads"].items():
-                if j == here and d in avoid:
-                    continue
-                if r["state"] == LINK and r["to"] not in parent:
-                    parent[r["to"]] = (j, d)
-                    queue.append(r["to"])
-        return None
-
-    def route_to_junction(self, here, goal, avoid):
-        """First road of the shortest known route to junction `goal`, not starting
-        with a road in `avoid`. Returns the direction or None."""
-        parent = {here: None}
-        queue = deque([here])
-        while queue:
-            j = queue.popleft()
-            if j == goal and j != here:
-                node = j
-                while parent[node][0] != here:
-                    node = parent[node][0]
-                return parent[node][1]
-            for d, r in self.junctions[j]["roads"].items():
-                if j == here and d in avoid:
-                    continue
-                if r["state"] == LINK and r["to"] not in parent:
-                    parent[r["to"]] = (j, d)
-                    queue.append(r["to"])
-        return None
-
-    def target_colour(self):
-        return CHECKPOINTS[self.target_index] if self.target_index < len(CHECKPOINTS) else None
-
-    def choose_next(self, here, scanned, avoid):
-        """Checkpoint first: once the colour being sought has been seen, go to the
-        road it lies on. Otherwise the accepted choice is made unchanged."""
-        colour = self.target_colour()
-        if colour is not None and colour in self.pads:
-            pj, pd = self.pads[colour]
-            if pj == here and pd not in avoid and pd in scanned:
-                return pd, "the road with the %s checkpoint" % colour
-            if pj != here:
-                first = self.route_to_junction(here, pj, avoid)
-                if first is not None:
-                    return first, "route to the %s checkpoint at junction %d" % (colour, pj)
-        return self.choose_untried(here, scanned, avoid)
-
-    def choose_untried(self, here, scanned, avoid):
-        """Pick the next road. Never a road in `avoid` (the road behind the robot
-        and the entry road), never a road already taken, linked, dead-ended or
-        blocked. An untried road here is chosen at random. Otherwise the robot
-        routes to the nearest junction with an untried road without using any
-        road in `avoid`. It goes back the way it came only if ALLOW_RETRACE is
-        True; otherwise it stops."""
-        roads = self.junctions[here]["roads"]
-        untried = [d for d in scanned
-                   if d not in avoid and roads.get(d, {}).get("state") == UNTRIED]
-        if untried:
-            return random.choice(untried), "untried road"
-
-        route = self.route_to_untried(here, avoid)
-        if route is not None:
-            first, target, path = route
-            print("route to junction %d through junctions %s"
-                  % (target, " -> ".join(str(p) for p in path)))
-            return first, "route over known links to an untried road"
-
-        if ALLOW_RETRACE:
-            route = self.route_to_untried(here, set())
-            if route is not None:
-                first, target, path = route
-                print("no other route: retracing through junctions %s"
-                      % " -> ".join(str(p) for p in path))
-                return first, "retracing the way it came"
-        return None
-
-    def on_checkpoint(self, colour):
-        """A pad colour was confirmed under the cameras."""
-        if colour == "GREEN" and math.hypot(self.x, self.y) < START_PAD_EXCLUSION:
-            print("GREEN start pad near the start: not a checkpoint")
-            return
-        if self.pending is not None and colour not in self.pads:
-            self.pads[colour] = self.pending
-            j, d = self.pending
-            print("memory: %s checkpoint lies on junction %d road %s" % (colour, j, DIR_NAME[d]))
-        expected = self.target_colour()
-        if colour == expected:
-            self.target_index += 1
-            print("CHECKPOINT %s reached" % colour)
-            self.start_blink(colour)
-            if colour == "YELLOW":
-                self.finish_at = self.travelled + PARK_DISTANCE
-                self.state = self.FINISH
-                print("YELLOW reached: driving %.2f m onto it, then stopping" % PARK_DISTANCE)
-            else:
-                print("next checkpoint: %s" % self.target_colour())
-        else:
-            print("out-of-order checkpoint %s saved to memory; still looking for %s"
-                  % (colour, expected))
-
-    def set_led(self, colour):
-        self.led.set(LED_RGB.get(colour, 0))
-
-    def start_blink(self, colour):
-        self.blink_colour = colour
-        self.blink_left = BLINK_COUNT * 2
-        self.blink_timer = 0
-
+    # --- Checkpoints & LED ---
     def update_led(self):
-        """Blink the confirmed colour, then show the colour now being sought."""
-        if self.blink_left > 0:
+        if self.blink_steps_left > 0:
             self.blink_timer -= 1
             if self.blink_timer <= 0:
-                on = self.blink_left % 2 == 0
-                self.set_led(self.blink_colour if on else None)
-                self.blink_left -= 1
-                self.blink_timer = BLINK_STEPS
+                lit = (self.blink_steps_left % 2 == 0)
+                self.led.set(LED_COLORS[self.blink_color if lit else None])
+                self.blink_steps_left -= 1
+                self.blink_timer = BLINK_HALF_STEPS
             return
-        self.set_led(self.target_colour())
+        target = CHECKPOINTS[self.target_idx] if self.target_idx < len(CHECKPOINTS) else None
+        self.led.set(LED_COLORS[target])
 
-    def start_scan(self):
-        self.state = self.SCAN
-        self.scan_angle = 0.0
-        self.road_bearings = []
-        self.scan_start_heading = self.heading
+    def process_checkpoint(self, color):
+        if color == "GREEN" and math.hypot(self.x, self.y) < START_BOX_RADIUS:
+            return  # Ignore launch START pad
 
-    def debug(self, values, bits, road_bits, c, on_colour, force=False):
-        """Print the sensor state so the run can be checked from the console."""
-        t = self.steps * self.step_ms / 1000.0
-        if not force and t - self.last_debug < DEBUG_PERIOD_S:
-            return
-        self.last_debug = t
-        print("[t=%6.2f] %-8s ir=%s" % (t, self.state, " ".join("%4d" % v for v in values)))
-        print("           front=%.0f bits=%s road=%s centroid=%s colour=%s heading=%+.1fdeg travelled=%.3f"
-              % (self.front_value, "".join("1" if b else "0" for b in bits),
-                 "".join("1" if b else "0" for b in road_bits),
-                 "none" if c is None else "%+.1f" % c,
-                 "yes" if on_colour else "no",
-                 math.degrees(self.heading), self.travelled))
-        print("           threshold=%.0f (black %.0f, floor %.0f)"
-              % (self.threshold, self.black_ref, self.floor_ref))
+        if color not in self.graph.checkpoints and self.active_edge is not None:
+            self.graph.checkpoints[color] = {
+                "node_id": self.active_edge[0],
+                "branch_idx": self.active_edge[1],
+                "x": self.x,
+                "y": self.y,
+            }
+            print(f"Mapped checkpoint {color} at ({self.x:.2f}, {self.y:.2f}) via node {self.active_edge[0]}")
 
+        expected = CHECKPOINTS[self.target_idx] if self.target_idx < len(CHECKPOINTS) else None
+        if color == expected:
+            self.target_idx += 1
+            self.blink_color = color
+            self.blink_steps_left = BLINK_CYCLES * 2
+            self.blink_timer = 0
+            print(f"CHECKPOINT {color} CONFIRMED ({self.target_idx}/{len(CHECKPOINTS)})")
+            if color == "YELLOW":
+                self.finish_target_dist = self.travelled + YELLOW_CENTER_DRIVE
+                self.state = self.FINISH
+                print(f"Centering full footprint inside YELLOW ({YELLOW_CENTER_DRIVE:.2f} m)...")
+
+    # --- Main Control Loop ---
     def run(self):
-        self.drive(0.0, 0.0)
-        self.set_led(self.target_colour())
-        samples = []
+        cal_samples = []
+        self.update_led()
+
         while self.robot.step(self.step_ms) != -1:
             self.steps += 1
             dth = self.update_odometry()
-            values = self.read_ir()
+            vals = self.read_ir_valid()
 
-            if len(samples) < CALIBRATION_STEPS:
-                samples.append(values)
-                self.drive(0.0, 0.0)
-                if len(samples) == CALIBRATION_STEPS:
-                    self.calibrate(samples)
-                    print("calibrated: threshold %.0f (black %.0f, floor %.0f)"
-                          % (self.threshold, self.black_ref, self.floor_ref))
-                    print("raw IR at spawn (mean of %d steps): %s"
-                          % (CALIBRATION_STEPS, " ".join(
-                              "%4.0f" % (sum(s[i] for s in samples) / len(samples))
-                              for i in range(7))))
-                    self.debug(values, self.line_bits(values), [False] * 7, None, False, force=True)
+            # Initial IR calibration
+            if len(cal_samples) < CALIBRATION_STEPS:
+                cal_samples.append(vals)
+                self.set_wheels(0.0, 0.0)
+                if len(cal_samples) == CALIBRATION_STEPS:
+                    self.calibrate_initial(cal_samples)
                 continue
 
-            bits = self.line_bits(values)
-            c = self.centroid(bits)
-            # Road sightings: black line only, never over a coloured checkpoint pad.
-            # Checkpoint identity from the pad colour; the road masking below is unchanged.
-            raw_pad = self.pad_colour()
+            # Camera checkpoint detection with exit hysteresis
+            raw_pad = self.detect_pad_color()
             self.pad_votes.append(raw_pad)
-            confirmed_pad = None
-            if (len(self.pad_votes) == PAD_CONFIRM_STEPS and self.pad_votes[0] is not None
-                    and all(v == self.pad_votes[0] for v in self.pad_votes)):
-                confirmed_pad = self.pad_votes[0]
-            if confirmed_pad is not None and confirmed_pad != self.pad_last:
-                self.on_checkpoint(confirmed_pad)
-            if confirmed_pad is not None:
-                self.pad_last = confirmed_pad
+            if (
+                len(self.pad_votes) == PAD_CONFIRM_FRAMES
+                and self.pad_votes[0] is not None
+                and all(v == self.pad_votes[0] for v in self.pad_votes)
+            ):
+                confirmed = self.pad_votes[0]
+                self.pad_clear_count = 0
+                if confirmed != self.active_pad:
+                    self.active_pad = confirmed
+                    self.process_checkpoint(confirmed)
             elif raw_pad is None:
-                self.pad_last = None
+                self.pad_clear_count += 1
+                if self.pad_clear_count >= PAD_EXIT_FRAMES:
+                    self.active_pad = None
+
             self.update_led()
+            on_pad = (raw_pad is not None) or (self.active_pad is not None)
+            bits = self.get_line_bits(vals)
+            self.refine_ground_calibration(vals, bits, on_pad)
+            self.front_val = self.read_front_median()
 
-            # White start line: readings clearly above the spawn floor.
-            white_now = sum(v > self.floor_ref + WHITE_MARGIN for v in values) >= 2
-            self.white_votes.append(white_now)
-            white_confirmed = len(self.white_votes) == WHITE_CONFIRM and all(self.white_votes)
-            self.white_start_flag = (white_confirmed and not self.white_last
-                                     and self.max_from_start >= START_MIN_EXCURSION
-                                     and math.hypot(self.x, self.y) <= START_LINE_RADIUS)
-            self.white_last = white_confirmed
-
-            on_colour = self.coloured_below()
-            road_bits = [False] * 7 if on_colour else bits
-            self.front_value = self.read_front()
-            self.debug(values, bits, road_bits, c, on_colour)
-
-            self.max_from_start = max(self.max_from_start, math.hypot(self.x, self.y))
-
-            # Start box: the GREEN start pad seen again after the robot has gone away.
-            green_now = confirmed_pad == "GREEN"
-            self.box_entry_flag = (green_now and not self.green_last
-                                   and self.max_from_start >= START_MIN_EXCURSION
-                                   and math.hypot(self.x, self.y) <= START_BOX_RADIUS)
-            if self.box_entry_flag:
-                print("START BOX seen again at (%.2f, %.2f): this road leads back to the start"
-                      % (self.x, self.y))
-            self.green_last = green_now
-
+            # --- State Machine ---
             if self.state == self.FOLLOW:
-                if self.at_start_entrance():
-                    # The start point is blocked like an obstacle: go back the way it came.
-                    self.start_obstacle_escape("START POINT reached", search=False)
+                # Stage 2 Mid-Path Obstacle Detection
+                if self.front_val >= OBSTACLE_MID_PATH:
+                    self.set_wheels(0.0, 0.0)
+                    if self.active_edge is not None:
+                        src_id, src_br = self.active_edge
+                        self.graph.block_branch(src_id, src_br)
+                        print(f"Obstacle ahead ({self.front_val:.0f}): blocked edge from node {src_id}; turning 180° to backtrack.")
+                    self.returning_from_rock = True
+                    self.target_heading = angle_wrap(self.heading + math.pi)
+                    self.state = self.ABORT_TURN
                     continue
-                if self.front_value >= OBSTACLE_TRIGGER:
-                    self.start_obstacle_escape("obstacle ahead (front %.0f)" % self.front_value,
-                                               search=True)
-                    continue
-                # Junction candidate: an outermost sensor sees a black road.
-                if road_bits[0] or road_bits[6]:
+
+                # Check for outer IR trigger (possible TURN corner or JUNCTION)
+                if not on_pad and (bits[0] or bits[6]):
                     self.outer_votes += 1
+                    self.outer_left_seen = self.outer_left_seen or bits[0]
+                    self.outer_right_seen = self.outer_right_seen or bits[6]
                 else:
                     self.outer_votes = 0
-                if self.outer_votes >= JUNCTION_CONFIRM_STEPS:
+                    self.outer_left_seen = False
+                    self.outer_right_seen = False
+
+                if self.outer_votes >= OUTER_CONFIRM_STEPS:
                     self.outer_votes = 0
-                    self.start_approach()
-                    print("junction found; moving onto the crossing centre")
+                    self.approach_start_dist = self.travelled
+                    self.arrival_heading = self.heading
+                    self.state = self.APPROACH
                     continue
-                self.follow(bits, c)
+
+                self.follow_line(bits, on_pad)
 
             elif self.state == self.APPROACH:
-                if self.travelled - self.state_start >= JUNCTION_CENTER_OFFSET:
-                    self.drive(0.0, 0.0)
-                    self.start_scan()
-                    print("scanning 360 degrees")
+                # Advance +0.13 m so the wheel axle sits directly over the intersection center
+                if self.travelled - self.approach_start_dist >= SENSOR_FORWARD_OFFSET:
+                    self.set_wheels(0.0, 0.0)
+                    straight_continues = any(bits[2:5])
+                    both_sides = self.outer_left_seen and self.outer_right_seen
+
+                    # Fast Corner Optimization: 90° TURN node (no straight line & only 1 side branch)
+                    if not straight_continues and not both_sides:
+                        turn_id = self.graph.add_turn_node(self.x, self.y)
+                        if not self.edge_turns or self.edge_turns[-1] != turn_id:
+                            self.edge_turns.append(turn_id)
+                        turn_dir = HALF_PI if self.outer_left_seen else -HALF_PI
+                        self.target_heading = angle_wrap(self.arrival_heading + turn_dir)
+                        self.outer_left_seen = False
+                        self.outer_right_seen = False
+                        self.state = self.TURN
+                    else:
+                        # True multi-way JUNCTION -> run 360° scan
+                        self.outer_left_seen = False
+                        self.outer_right_seen = False
+                        self.scan_start_heading = self.heading
+                        self.scan_accum = 0.0
+                        self.scan_bearings = []
+                        self.state = self.SCAN
                 else:
-                    self.drive(APPROACH_SPEED, APPROACH_SPEED)
+                    self.set_wheels(APPROACH_SPEED, APPROACH_SPEED)
 
             elif self.state == self.SCAN:
-                self.scan_angle += dth
-                for i, is_road in enumerate(road_bits):
-                    if is_road:
-                        self.road_bearings.append(
-                            self.heading + SENSOR_BEARING[i] - self.scan_start_heading)
-                if self.scan_angle >= TWO_PI:
-                    self.drive(0.0, 0.0)
-                    roads = find_roads(self.road_bearings)
-                    print("scan: %d road sightings" % len(self.road_bearings))
-                    scanned = sorted({dir_of(self.scan_start_heading + r) for r in roads})
-                    was_forced = self.forced_scan
-                    self.forced_scan = False
-                    if len(scanned) <= 2 and not was_forced:
-                        # A bend or a straight stretch, not a junction: follow the road
-                        # closest to straight ahead without recording anything.
-                        if roads:
-                            print("bend or straight; following the road closest to ahead")
-                            self.start_turn_to(min(roads, key=abs))
-                        else:
-                            self.start_turn_to(0.0)
-                        continue
+                self.scan_accum += abs(dth)
+                if not on_pad:
+                    for i, active in enumerate(bits):
+                        if active:
+                            self.scan_bearings.append(
+                                self.heading + SENSOR_BEARING[i] - self.scan_start_heading
+                            )
 
-                    here = self.junction_index()
+                if self.scan_accum >= TWO_PI:
+                    self.set_wheels(0.0, 0.0)
+                    rel_roads = cluster_road_bearings(self.scan_bearings)
+                    abs_roads = [angle_wrap(self.scan_start_heading + r) for r in rel_roads]
 
-                    # The road behind the robot is the opposite of the direction it
-                    # was travelling when it reached this junction. This is taken from
-                    # the actual heading, so it stays right after a rock and a 180 turn.
-                    behind = (dir_of(self.arrival_heading) + 2) % 4
-                    if self.pending is not None:
-                        self.link_arrival(here, behind)
-                        if self.junctions[here]["entry"] is None:
-                            self.junctions[here]["entry"] = behind
+                    # Ensure entry road behind robot is represented
+                    entry_bearing = angle_wrap(self.arrival_heading + math.pi)
+                    if not any(angle_diff(b, entry_bearing) <= ANGLE_MATCH_TOL for b in abs_roads):
+                        abs_roads.append(entry_bearing)
 
-                    entry = self.junctions[here]["entry"]
-                    if entry is None:
-                        self.junctions[here]["entry"] = behind
-                        entry = behind
-                    # Never choose the road behind the robot, nor the entry road.
-                    avoid = {behind, entry}
+                    nid, sx, sy, is_new = self.graph.add_junction(self.x, self.y, abs_roads)
+                    self.x, self.y = sx, sy
+                    in_br = self.graph.match_branch(nid, entry_bearing)
 
-                    roads_here = self.junctions[here]["roads"]
-                    if not was_forced:
-                        for d in avoid:
-                            if roads_here.get(d, {}).get("state", UNTRIED) == UNTRIED:
-                                roads_here[d] = {"state": TAKEN}
-                    self.note_roads(here, [d for d in scanned if d not in avoid])
-                    print(self.describe(here))
+                    # Link incoming corridor edge if we arrived from another junction
+                    if self.active_edge is not None and not self.returning_from_rock and in_br is not None:
+                        src_id, src_br = self.active_edge
+                        if src_id != nid or src_br != in_br:
+                            corridor_len = self.travelled - self.edge_start_dist
+                            self.graph.link_corridor(
+                                src_id, src_br, nid, in_br, self.edge_turns, corridor_len
+                            )
+                    elif in_br is not None and self.graph.nodes[nid]["branches"][in_br]["state"] == UNTRIED:
+                        self.graph.nodes[nid]["branches"][in_br]["state"] = EXPLORED
 
-                    if was_forced:
-                        # The obstacle road is ahead of the robot: block it. The road back
-                        # toward the junction is not blocked; it may still be explored.
-                        ahead = dir_of(self.arrival_heading)
-                        roads_here[ahead] = {"state": BLOCKED}
-                        avoid = {ahead}
-                        self.note_roads(here, [d for d in scanned if d not in avoid])
+                    self.returning_from_rock = False
+                    print(f"JUNCTION {nid} ({'NEW' if is_new else 'KNOWN'}) at ({self.x:.2f}, {self.y:.2f}) "
+                          f"with {len(self.graph.nodes[nid]['branches'])} branches")
 
-                    choice = self.choose_next(here, scanned, avoid)
-                    if choice is None and was_forced:
-                        self.search_failures += 1
-                        if self.search_failures >= 2:
-                            print("no unexplored road found after repeated searches; stopping")
-                            self.state = self.STOPPED
-                        else:
-                            print("no unexplored road here; turning back the way it came")
-                            self.target_heading = angle_wrap(self.arrival_heading + math.pi)
-                            self.state = self.TURN
-                    elif choice is None:
-                        print("every unexplored road here is only reachable by going back "
-                              "the way the robot came; stopping")
-                        self.state = self.STOPPED
-                    else:
-                        d, reason = choice
-                        self.search_failures = 0
-                        print("chose road %s at junction %d (%s)" % (DIR_NAME[d], here, reason))
-                        # Only mark a road TAKEN if it was untried. A link must keep its
-                        # destination, or the map loses the connection.
-                        if roads_here.get(d, {}).get("state") == UNTRIED:
-                            roads_here[d] = {"state": TAKEN}
-                        self.pending = (here, d)
-                        self.start_turn_to(d * HALF_PI - self.scan_start_heading)
+                    self.pending_junction = nid
+                    self.choose_and_turn_at_junction(nid)
                 else:
-                    self.drive(-SCAN_SPEED, SCAN_SPEED)
-
-            elif self.state == self.FINISH:
-                if self.front_value >= OBSTACLE_TRIGGER:
-                    self.drive(0.0, 0.0)
-                    print("obstacle while on YELLOW; stopping")
-                    self.state = self.STOPPED
-                elif self.travelled >= self.finish_at:
-                    self.drive(0.0, 0.0)
-                    print("MISSION COMPLETE")
-                    self.state = self.STOPPED
-                else:
-                    self.follow(bits, c)
-
-            elif self.state == self.REVERSE:
-                if self.reverse_start - self.travelled >= REVERSE_MAX:
-                    self.drive(0.0, 0.0)
-                    print("no junction within %.1f m while reversing; stopping" % REVERSE_MAX)
-                    self.state = self.STOPPED
-                    continue
-                # Same junction test as going forward: an outer sensor on a road.
-                if road_bits[0] or road_bits[6]:
-                    self.outer_votes += 1
-                else:
-                    self.outer_votes = 0
-                if self.outer_votes >= JUNCTION_CONFIRM_STEPS:
-                    self.outer_votes = 0
-                    # Back up the rest of the way to the crossing centre. The existing
-                    # BACKUP state then sees search_here=True and starts the 360 scan.
-                    self.backup_goal = self.travelled - JUNCTION_CENTER_OFFSET
-                    self.state = self.BACKUP
-                    print("junction found while reversing; moving onto the crossing centre")
-                else:
-                    self.drive(-APPROACH_SPEED, -APPROACH_SPEED)
-
-            elif self.state == self.BACKUP:
-                if self.travelled <= self.backup_goal:
-                    self.drive(0.0, 0.0)
-                    if self.search_here:
-                        # The robot is in the middle of a road, so it may have an
-                        # unexplored side road here. Search 360 degrees for one.
-                        self.arrival_heading = self.heading
-                        self.search_here = False
-                        self.forced_scan = True
-                        print("searching 360 degrees here for an unexplored road")
-                        self.start_scan()
-                    else:
-                        self.state = self.TURN
-                else:
-                    self.drive(-APPROACH_SPEED, -APPROACH_SPEED)
+                    self.set_wheels(-SCAN_SPEED, SCAN_SPEED)
 
             elif self.state == self.TURN:
-                error = angle_wrap(self.target_heading - self.heading)
-                if abs(error) <= TURN_TOLERANCE:
-                    self.drive(0.0, 0.0)
+                err = angle_wrap(self.target_heading - self.heading)
+                if abs(err) <= TURN_TOLERANCE:
+                    self.set_wheels(0.0, 0.0)
                     self.heading = self.target_heading
-                    self.state = self.FOLLOW
-                    self.lost = 0
-                    self.prev = 0.0
+                    self.prev_err = 0.0
                     self.integral = 0.0
+                    self.lost_steps = 0
+                    if self.pending_junction is not None and self.pending_branch is not None:
+                        # Stage 1 Pre-Entry Obstacle Check before committing to the edge
+                        self.entry_check_frames = 3
+                        self.state = self.CHECK_ENTRY
+                    else:
+                        self.state = self.FOLLOW
                 else:
-                    mag = clamp(TURN_GAIN * abs(error), TURN_MIN, TURN_MAX)
-                    w = mag if error > 0 else -mag
-                    self.drive(-w, w)
+                    w = clamp(TURN_GAIN * abs(err), TURN_MIN_SPEED, TURN_MAX_SPEED)
+                    w = w if err > 0 else -w
+                    self.set_wheels(-w, w)
 
-            else:
-                self.drive(0.0, 0.0)
+            elif self.state == self.CHECK_ENTRY:
+                self.set_wheels(0.0, 0.0)
+                self.entry_check_frames -= 1
+                if self.entry_check_frames <= 0:
+                    nid = self.pending_junction
+                    br_idx = self.pending_branch
+                    if self.front_val >= OBSTACLE_PRE_ENTRY:
+                        print(f"Pre-entry check: obstacle on node {nid} branch {br_idx} "
+                              f"(front={self.front_val:.0f}); marking BLOCKED.")
+                        self.graph.block_branch(nid, br_idx)
+                        self.choose_and_turn_at_junction(nid)
+                    else:
+                        # Path clear -> commit to edge
+                        if self.graph.nodes[nid]["branches"][br_idx]["state"] == UNTRIED:
+                            self.graph.nodes[nid]["branches"][br_idx]["state"] = EXPLORED
+                        self.active_edge = (nid, br_idx)
+                        self.edge_start_dist = self.travelled
+                        self.edge_turns = []
+                        self.pending_junction = None
+                        self.pending_branch = None
+                        self.state = self.FOLLOW
 
-    def start_turn_to(self, relative):
-        # The scan started at the heading the robot had at the junction.
-        self.target_heading = angle_wrap(self.scan_start_heading + relative)
+            elif self.state == self.ABORT_TURN:
+                err = angle_wrap(self.target_heading - self.heading)
+                if abs(err) <= TURN_TOLERANCE:
+                    self.set_wheels(0.0, 0.0)
+                    self.heading = self.target_heading
+                    self.prev_err = 0.0
+                    self.integral = 0.0
+                    self.lost_steps = 0
+                    self.state = self.FOLLOW
+                else:
+                    w = clamp(TURN_GAIN * abs(err), TURN_MIN_SPEED, TURN_MAX_SPEED)
+                    w = w if err > 0 else -w
+                    self.set_wheels(-w, w)
+
+            elif self.state == self.FINISH:
+                if self.front_val >= OBSTACLE_MID_PATH or self.travelled >= self.finish_target_dist:
+                    self.set_wheels(0.0, 0.0)
+                    self.led.set(LED_COLORS["YELLOW"])
+                    print(f"MISSION COMPLETE at ({self.x:.2f}, {self.y:.2f}); wheels stopped.")
+                    self.state = self.STOPPED
+                else:
+                    self.follow_line(bits, True)
+
+            else:  # STOPPED
+                self.set_wheels(0.0, 0.0)
+
+    def choose_and_turn_at_junction(self, nid):
+        choice, reason = self.select_outgoing_branch(nid, self.arrival_heading)
+        if choice is None:
+            print(f"Exploration exhausted at node {nid}: {reason}")
+            self.pending_junction = None
+            self.pending_branch = None
+            self.state = self.STOPPED
+            return
+
+        self.pending_branch = choice
+        br = self.graph.nodes[nid]["branches"][choice]
+        print(f"Node {nid}: selected branch {choice} (bearing {math.degrees(br['bearing']):+.1f} deg) -> {reason}")
+        self.target_heading = br["bearing"]
         self.state = self.TURN
 
 
 def main():
     try:
-        random.seed()
-        LineFollower(Robot()).run()
-    except RuntimeError as error:
-        print("STARTER ERROR: %s" % error, file=sys.stderr)
+        ElloMazeController(Robot()).run()
+    except RuntimeError as exc:
+        print(f"CONTROLLER ERROR: {exc}", file=sys.stderr)
         return 2
     return 0
 
